@@ -49,7 +49,7 @@ Logs are written to `xm/logs/run-*.json` and screenshots to `xm/screenshots/`.
 
 ## Notes
 
-- **Reaching the "Document Header" screen.** The clicks that lead there from the XM landing page are not known yet. If the screen doesn't show up, an interactive run asks you to open it yourself and press Enter. To automate it, add the clicks to `navigation` in `xm.config.json`, e.g. `[{"click": "text=New Timesheet"}]`.
+- **Reaching the "Document Header" screen.** From the XM Inbox landing page the filler clicks the **Create a New...** button and then the **Timesheet** item in the menu that opens; those clicks live in `navigation` in `xm.config.json`. The selectors are text/role based and tolerate both the literal `...` and a unicode ellipsis in the button label. If the screen still doesn't show up, an interactive run asks you to open it yourself and press Enter. If XM changes those labels, edit `navigation` in `xm.config.json`.
 - **`--dry-run` still runs the header Save**, because the hours grid only appears after it. XM may therefore keep an empty or imported draft for that week. Check it in XM after a dry run, and delete it if needed.
 - **Grid cells are found by position**: the row whose charge-code text matches, crossed with the column headed `Mon 21/09` (and so on). If XM looks different, all selectors and formats can be changed in `xm.config.json`.
 - **Test:** `npm test` runs the script against the mock in `test/mock-xm.html`.

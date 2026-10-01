@@ -30,7 +30,22 @@
       "Personal Time Off And Holidays": 8
     }
   },
-  "navigation": [],
+  "navigation": [
+    {
+      "click": [
+        { "role": "button", "name": "/Create a New\\s*(\\.\\.\\.|\\u2026)?\\s*$/i" },
+        { "role": "link", "name": "/Create a New\\s*(\\.\\.\\.|\\u2026)?\\s*$/i" },
+        { "text": "/Create a New\\s*(\\.\\.\\.|\\u2026)?\\s*$/i" }
+      ]
+    },
+    {
+      "click": [
+        { "role": "menuitem", "name": "/^\\s*Timesheet\\s*$/i" },
+        { "role": "link", "name": "/^\\s*Timesheet\\s*$/i" },
+        { "text": "/^\\s*Timesheet\\s*$/i" }
+      ]
+    }
+  ],
   "paths": {
     "overrides": "../hcm/overrides.json",
     "holidays": "holidays.json",

@@ -10,7 +10,13 @@
   .err{color:#f66}
 </style></head><body>
 
-<div id="landing" class="screen"><h1>XM Home</h1><button id="newTs">New Timesheet</button></div>
+<div id="landing" class="screen"><h1>XM Inbox</h1>
+  <button id="createNew">Create a New&#8230;</button>
+  <div id="createMenu" role="menu" style="display:none;border:1px solid #888;background:#2a2a2a;width:160px">
+    <div role="menuitem" id="menuExpense" tabindex="0">Expense Report</div>
+    <div role="menuitem" id="menuTimesheet" tabindex="0">Timesheet</div>
+  </div>
+</div>
 
 <div id="s1" class="screen">
   <div class="bar"><button>Help</button><button id="s1cancel">Cancel</button><button id="s1save">Save</button></div>
@@ -71,7 +77,9 @@ const ROWS = [
 if (q.get('extra')) ROWS.push(['Training', 'Administrative Code', '', '', [0, 1, 0, 0, 0, 0, 0]]);
 let weekStart;
 
-$('newTs').onclick = () => show('s1');
+$('createNew').onclick = () => { $('createMenu').style.display = 'block'; };
+$('menuExpense').onclick = () => { $('createMenu').style.display = 'none'; };
+$('menuTimesheet').onclick = () => { $('createMenu').style.display = 'none'; show('s1'); };
 $('s1cancel').onclick = () => { state.cancelled = true; show('done'); };
 $('s1save').onclick = () => {
   const m = /^(\d{2})\/(\d{2})\/(\d{2})$/.exec($('date').value.trim());

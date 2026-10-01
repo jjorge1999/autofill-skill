@@ -18,8 +18,12 @@ cfg.paths.logDir = path.join(tmp, 'logs');
 cfg.paths.screenshotDir = path.join(tmp, 'screenshots');
 Object.assign(cfg.timeouts, { loginMs: 10000, headerMs: 3000, navStepMs: 3000, gridMs: 5000, saveMs: 5000, confirmMs: 3000, submitMs: 3000, pollMs: 200 });
 const write = (name, data) => { const f = path.join(tmp, name); fs.writeFileSync(f, JSON.stringify(data, null, 2)); return f; };
-const cfgFile = write('xm.config.json', cfg);
-const navCfgFile = write('xm.nav.config.json', { ...cfg, navigation: [{ click: 'text=New Timesheet' }] });
+// cfgFile has no navigation, so the Document Header must already be on screen (?landing is not set).
+const cfgFile = write('xm.config.json', { ...cfg, navigation: [] });
+// The real navigation (Create a New... -> Timesheet) comes straight from xm.config.json.
+const navCfgFile = write('xm.nav.config.json', { ...cfg, navigation: cfg.navigation });
+assert.ok(Array.isArray(cfg.navigation) && cfg.navigation.length >= 2,
+  'xm.config.json navigation must drive the landing page to the Document Header');
 
 // Week 20-26 Sep 2026. Wed/Thu unknown in the log; Wed overridden wfh, Thu vacation; Fri is a public holiday.
 const summary = write('summary.json', [
@@ -77,6 +81,12 @@ const tests = [
     const r = await go([], portal + '?landing=1', navCfgFile);
     assert.strictEqual(r.exitCode, 0, r.log.error && r.log.error.message);
     assert.strictEqual(r.log.result, 'saved-draft');
+    // The landing page ("Create a New..." -> "Timesheet") was navigated end to end.
+    assert.ok(r.state.clicks.some(c => /^Create a New/.test(c)), 'the "Create a New..." button must be clicked');
+    assert.ok(r.log.steps.some(s => /navigation\[0\]/.test(s.msg)), 'navigation[0] (Create a New...) must run');
+    assert.ok(r.log.steps.some(s => /navigation\[1\]/.test(s.msg)), 'navigation[1] (Timesheet) must run');
+    assert.ok(r.log.steps.some(s => /Document Header screen found/.test(s.msg)), 'navigation must reach the Document Header');
+    assert.strictEqual(r.state.headerSaved, true);
     assert.strictEqual(r.state.headerDate, '20/09/26');
     assert.strictEqual(r.state.selectedTimesheet, '13-Sep-2026 - 19-Sep-2026');
     assert.strictEqual(r.state.importHours, true);
