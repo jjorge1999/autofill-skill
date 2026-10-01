@@ -1,0 +1,79 @@
+{
+  "urls": {
+    "portal": "https://mingle-portal.inforcloudsuite.com/INFORHCM_PRD/bdf29456-8e04-4678-a6b8-e636830a398e?favoriteContext=xm_default&LogicalId=lid%3A%2F%2Finfor.xm.infor_prd",
+    "appUrlPatterns": [
+      "^https://mingle-portal\\.inforcloudsuite\\.com/"
+    ]
+  },
+  "browser": {
+    "channel": "msedge",
+    "fallbackToChromium": true,
+    "userDataDir": "%LOCALAPPDATA%\\InforAutofill\\browser-profile-xm",
+    "viewport": { "width": 1600, "height": 1000 }
+  },
+  "dateFormat": "DD/MM/YY",
+  "dayColumnFormat": "ddd DD/MM",
+  "periodFormat": "DD-Mon-YYYY",
+  "weekStartDay": 0,
+  "weekendDays": [0, 6],
+  "hours": {
+    "workday": {
+      "ERP_M3_Experience": 2,
+      "ERP_M3_Maintenance": 7,
+      "General Internal Meetings": 0,
+      "Personal Time Off And Holidays": 0
+    },
+    "leave": {
+      "ERP_M3_Experience": 0,
+      "ERP_M3_Maintenance": 0,
+      "General Internal Meetings": 0,
+      "Personal Time Off And Holidays": 8
+    }
+  },
+  "navigation": [],
+  "paths": {
+    "overrides": "../hcm/overrides.json",
+    "holidays": "holidays.json",
+    "logDir": "logs",
+    "screenshotDir": "screenshots"
+  },
+  "timeouts": {
+    "loginMs": 300000,
+    "headerMs": 30000,
+    "navStepMs": 20000,
+    "gridMs": 30000,
+    "saveMs": 30000,
+    "confirmMs": 10000,
+    "submitMs": 20000,
+    "pollMs": 500
+  },
+  "selectors": {
+    "loginForm": "input[type='password'], input[name='loginfmt'], #i0116",
+    "documentHeader": "text=Document Header",
+    "editTimeItems": "text=Edit Time Items",
+    "headerDate": [
+      { "label": "/^\\W*Date\\b/i" },
+      { "css": "input[name*='date' i], input[id*='date' i]" }
+    ],
+    "timesheetSelect": [
+      { "label": "/^\\W*Timesheet\\s*$/i" },
+      { "css": "select" }
+    ],
+    "importHours": [
+      { "label": "/Import Hours/i" },
+      { "role": "checkbox", "name": "/Import Hours/i" }
+    ],
+    "headerSave": [{ "role": "button", "name": "Save", "exact": true }, { "css": "button:has-text('Save')" }],
+    "gridSave": [{ "role": "button", "name": "Save", "exact": true }, { "css": "button:has-text('Save')" }],
+    "gridCancel": [{ "role": "button", "name": "Cancel", "exact": true }, { "css": "button:has-text('Cancel')" }],
+    "submitButton": [{ "role": "button", "name": "Submit", "exact": true }, { "css": "button:has-text('Submit')" }],
+    "savedMarker": "role=button[name='Submit']",
+    "submittedMarker": "text=/Submitted/i",
+    "confirmDialog": "[role='dialog'], [role='alertdialog'], .modal",
+    "confirmButtonName": "/^(Yes|OK|Submit|Confirm|Discard)$/i",
+    "gridHeaderCell": "th, [role='columnheader']",
+    "gridCellInput": "input:not([type='checkbox']):not([type='radio']):not([type='hidden']):not([type='button'])",
+    "weekTotalHeader": "^Week\\s*Total$",
+    "footerLabel": "^(Total|Totals|Daily Total|Day Total)$"
+  }
+}

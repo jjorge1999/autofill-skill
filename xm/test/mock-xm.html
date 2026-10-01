@@ -1,0 +1,133 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>XM (mock)</title>
+<style>
+  body{font-family:sans-serif;background:#1e1e1e;color:#ddd;margin:12px}
+  .screen{display:none}.screen.on{display:block}
+  .bar{float:right}button{margin:2px}
+  table{border-collapse:collapse;margin-top:8px}th,td{border:1px solid #444;padding:4px 6px}
+  input.h{width:50px}input:disabled{background:#555}
+  #modal{display:none;position:fixed;top:30%;left:30%;background:#333;padding:20px;border:1px solid #888}
+  .err{color:#f66}
+</style></head><body>
+
+<div id="landing" class="screen"><h1>XM Home</h1><button id="newTs">New Timesheet</button></div>
+
+<div id="s1" class="screen">
+  <div class="bar"><button>Help</button><button id="s1cancel">Cancel</button><button id="s1save">Save</button></div>
+  <h1>Timesheet</h1><h2>Document Header</h2>
+  <p>Enter the header information for this timesheet and click Save. Date can be any date in the period. To import charge codes select an existing timesheet.</p>
+  <div><label for="date">* Date</label> <input id="date" type="text"> <span>&#128197;</span></div>
+  <div><label for="ts">Timesheet</label> <select id="ts"></select></div>
+  <div><input type="checkbox" id="imp"> <label for="imp">Import Hours</label></div>
+  <div id="s1err" class="err"></div>
+</div>
+
+<div id="s2" class="screen">
+  <div class="bar"><button>Help</button><button id="s2cancel">Cancel</button><button id="s2save">Save</button></div>
+  <h1>Timesheet</h1><h2>Edit Time Items</h2>
+  <div id="s2head"></div>
+  <button>Add</button><button>Import</button>
+  <table id="grid"><thead></thead><tbody></tbody><tfoot></tfoot></table>
+</div>
+
+<div id="s3" class="screen">
+  <div class="bar"><button>Help</button><button>Close</button><button>More...</button><button id="submit">Submit</button></div>
+  <h1>Timesheet</h1>
+  <div id="s3head"></div><div><a href="#">Post</a> | <a href="#">History</a></div>
+  <div>Calendar | Items [20] | Notes | Overview</div><button>Edit</button>
+  <div id="status"></div>
+</div>
+
+<div id="done" class="screen"><p id="doneText"></p></div>
+
+<div id="modal" role="dialog"><p>Submit this timesheet for approval?</p><button id="yes">Yes</button><button id="no">No</button></div>
+
+<script>
+const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const D = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const q = new URLSearchParams(location.search);
+const state = window.mockState = { headerDate: null, selectedTimesheet: null, importHours: null,
+  headerSaved: false, saved: false, submitted: false, cancelled: false, cells: null, total: null, clicks: [] };
+const $ = id => document.getElementById(id);
+const show = id => { document.querySelectorAll('.screen').forEach(s => s.classList.remove('on')); $(id).classList.add('on'); };
+const p2 = n => String(n).padStart(2, '0');
+const lbl = d => `${p2(d.getDate())}-${M[d.getMonth()]}-${d.getFullYear()}`;
+const add = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+const period = s => `${lbl(s)} - ${lbl(add(s, 6))}`;
+document.addEventListener('click', e => { if (e.target.tagName === 'BUTTON') state.clicks.push(e.target.textContent); });
+
+// previous periods, deliberately not sorted
+const opts = [new Date(2026, 8, 6, 12), new Date(2026, 8, 13, 12), new Date(2026, 7, 30, 12)];
+if (q.get('existing')) opts.unshift(new Date(2026, 8, 20, 12));
+$('ts').innerHTML = '<option value=""></option>' + opts.map((d, i) => `<option value="TS${i}">${period(d)}</option>`).join('');
+
+// imported pattern = last week, which had leave on Thu/Fri and 1h meeting on Wed
+const ROWS = [
+  ['ERP_M3_Experience', 'M3A-M3 Applications', 'Coding', 'Experience', [0, 2, 2, 2, 0, 0, 0]],
+  ['ERP_M3_Maintenance', 'M3A-M3 Applications', 'Coding', 'Maintenance', [0, 7, 7, 6, 0, 0, 0]],
+  ['General Internal Meetings', 'Administrative Code', '', '', [0, 0, 0, 1, 0, 0, 0]],
+  ['Personal Time Off And Holidays', 'Administrative Code', '', '', [0, 0, 0, 0, 8, 8, 0]],
+];
+if (q.get('extra')) ROWS.push(['Training', 'Administrative Code', '', '', [0, 1, 0, 0, 0, 0, 0]]);
+let weekStart;
+
+$('newTs').onclick = () => show('s1');
+$('s1cancel').onclick = () => { state.cancelled = true; show('done'); };
+$('s1save').onclick = () => {
+  const m = /^(\d{2})\/(\d{2})\/(\d{2})$/.exec($('date').value.trim());
+  if (!m) { $('s1err').textContent = 'Date is required (DD/MM/YY)'; return; }
+  const d = new Date(2000 + +m[3], +m[2] - 1, +m[1], 12);
+  weekStart = add(d, -d.getDay());
+  const sel = $('ts').options[$('ts').selectedIndex];
+  Object.assign(state, { headerDate: $('date').value, selectedTimesheet: sel ? sel.textContent : null,
+    importHours: $('imp').checked, headerSaved: true });
+  buildGrid(state.importHours && $('ts').value ? ROWS : []);
+  $('s2head').textContent = `TC02345731 | JOMER JORGE | ${period(weekStart)} | Total Hours: 0.00`;
+  show('s2');
+};
+
+function buildGrid(rows) {
+  const days = [...Array(7)].map((_, i) => add(weekStart, i));
+  $('grid').tHead.innerHTML = '<tr><th></th><th>Charge Code</th><th>Product</th><th>Sub Task / Activity</th><th>Project Activity Type</th>' +
+    days.map(d => `<th>${D[d.getDay()]}<br>${p2(d.getDate())}/${p2(d.getMonth() + 1)}</th>`).join('') + '<th>Week Total</th></tr>';
+  $('grid').tBodies[0].innerHTML = rows.map(r => `<tr><td>&#9998; &#128465;</td><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td>` +
+    r[4].map((h, i) => `<td><input class="h" value="${h.toFixed(2)}" ${i === 0 || i === 6 ? 'disabled' : ''}><span>&#9719;</span></td>`).join('') +
+    '<td class="wt"></td></tr>').join('');
+  $('grid').tFoot.innerHTML = '<tr><td></td><td>Total</td><td></td><td></td><td></td>' + days.map(() => '<td class="ft"></td>').join('') + '<td class="gt"></td></tr>';
+  $('grid').addEventListener('change', recalc);
+  recalc();
+}
+function readCells() {
+  const out = {};
+  for (const tr of $('grid').tBodies[0].rows) out[tr.cells[1].textContent] = [...tr.querySelectorAll('input')].map(i => parseFloat(i.value) || 0);
+  return out;
+}
+function recalc() {
+  const cells = readCells(); const foot = [0, 0, 0, 0, 0, 0, 0];
+  [...$('grid').tBodies[0].rows].forEach(tr => {
+    const v = cells[tr.cells[1].textContent];
+    v.forEach((h, i) => foot[i] += h);
+    tr.querySelector('.wt').textContent = v.reduce((a, b) => a + b, 0).toFixed(2);
+  });
+  document.querySelectorAll('.ft').forEach((td, i) => td.textContent = foot[i].toFixed(2));
+  document.querySelector('.gt').textContent = foot.reduce((a, b) => a + b, 0).toFixed(2);
+}
+
+$('s2cancel').onclick = () => {
+  if (!confirm('Discard changes?')) return;
+  state.cancelled = true; $('doneText').textContent = 'Cancelled'; show('done');
+};
+$('s2save').onclick = () => {
+  state.cells = readCells();
+  state.total = Object.values(state.cells).flat().reduce((a, b) => a + b, 0);
+  state.saved = true;
+  $('s3head').textContent = `TC02345731 | JOMER JORGE | ${period(weekStart)} | Total Hours: ${state.total.toFixed(2)}`;
+  show('s3');
+};
+$('submit').onclick = () => { $('modal').style.display = 'block'; };
+$('yes').onclick = () => { $('modal').style.display = 'none'; state.submitted = true; $('status').textContent = 'Status: Submitted'; };
+$('no').onclick = () => { $('modal').style.display = 'none'; };
+
+show(q.get('landing') ? 'landing' : 's1');
+</script>
+</body></html>
