@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mock Infor HCM - Employee Calendar</title>
+<!--
+  Local stand-in for the Infor HCM ESS calendar (month view) and the
+  "Request Time Off For <Name>" dialog, built from screenshots.
+  Query params: ?today=yyyy-mm-dd  (initial month / Today button)
+  Saved requests are kept in localStorage["mock-hcm-requests"] for the test to inspect.
+  The dialog opens on DOUBLE-click of a day cell (so the filer's first strategy, single click, fails).
+-->
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; }
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #ccc; }
+  .toolbar .month-year { font-size: 20px; font-weight: bold; margin: 0 12px; }
+  .monthview-table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  .monthview-table th { padding: 4px; border: 1px solid #ddd; background: #f4f4f4; }
+  .monthview-table td { border: 1px solid #ddd; height: 90px; vertical-align: top; position: relative; padding: 2px; }
+  .monthview-table td.alternate { color: #aaa; background: #fafafa; }
+  .monthview-table td.holiday { background: #e8e8e8; }
+  .day-text { position: absolute; top: 2px; right: 4px; font-size: 12px; }
+  .events { margin-top: 18px; }
+  .calendar-event { background: #c00; color: #fff; font-size: 11px; padding: 2px 4px; margin: 1px 0; }
+  .holiday-name { font-size: 11px; margin-top: 18px; color: #555; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.3); display: none; }
+  .modal { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); width: 560px; background: #fff; padding: 16px; border: 1px solid #888; display: none; }
+  .modal.is-visible, .overlay.is-visible { display: block; }
+  .field { margin: 8px 0; }
+  .field > label.lbl { display: inline-block; width: 160px; font-weight: bold; }
+  .error-message { color: #c00; font-size: 12px; }
+  .days td { padding: 2px 8px; }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button type="button" class="prev" aria-label="Previous Month">&lt;</button>
+  <button type="button" class="next" aria-label="Next Month">&gt;</button>
+  <span class="month-year"><span class="month"></span> <span class="year"></span></span>
+  <button type="button" id="todayBtn">Today</button>
+  <span style="flex:1"></span>
+  <button type="button">Day</button><button type="button">Week</button><button type="button">Month</button>
+</div>
+<table class="monthview-table">
+  <thead><tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr></thead>
+  <tbody id="grid"></tbody>
+</table>
+
+<div class="overlay" id="overlay"></div>
+<div class="modal" id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <h2 id="dlgTitle">Request Time Off For Jane Doe</h2>
+  <div class="field">
+    <label class="lbl" for="plan">Plan:<span class="required">*</span></label>
+    <input id="plan" type="text" autocomplete="off">
+    <button type="button" class="lookup" aria-label="Lookup Plan">&#128269;</button>
+    <span id="planDesc"></span>
+  </div>
+  <div class="field">
+    <span class="lbl">Days</span>
+    <table class="days">
+      <tr><td>Available</td><td>Pending + Approved</td><td>Available For Request</td></tr>
+      <tr><td id="avail">-</td><td id="pend">-</td><td id="afr">-</td></tr>
+    </table>
+  </div>
+  <div class="field">
+    <label class="lbl" for="dateFrom">Dates:<span class="required">*</span></label>
+    <input id="dateFrom" type="text" placeholder="DD/MM/YYYY"><button type="button" aria-label="Open calendar">&#128197;</button>
+    <span> - </span>
+    <input id="dateTo" type="text" placeholder="DD/MM/YYYY"><button type="button" aria-label="Open calendar">&#128197;</button>
+  </div>
+  <div class="field">
+    <input type="checkbox" id="fullDay" checked><label for="fullDay">Full Day</label>
+    <input type="checkbox" id="halfDay"><label for="halfDay">Half Day</label>
+    <input type="checkbox" id="otherHours"><label for="otherHours">Other Hours</label>
+  </div>
+  <div class="field">
+    <label class="lbl" for="info">Additional Information:</label>
+    <textarea id="info" rows="3" cols="40"></textarea>
+  </div>
+  <div class="field">
+    <label class="lbl" for="attach">Attachment:</label><input id="attach" type="file">
+  </div>
+  <div class="field">
+    <input type="radio" name="action" id="rSubmit" value="submit" checked><label for="rSubmit">Submit request for approval</label><br>
+    <input type="radio" name="action" id="rDraft" value="draft"><label for="rDraft">Save as draft and submit later</label>
+  </div>
+  <div class="error-message" id="err" style="display:none"></div>
+  <div style="text-align:right">
+    <button type="button" id="okBtn">OK</button>
+    <button type="button" id="cancelBtn">Cancel</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const PLANS = { '248': 'Telecommuting', '300': 'Sick Leave' };
+  const FIXED_EVENTS = {
+    '2026-09-01': 'Telecommuting: Full Day',
+    '2026-09-10': 'Vacation: Full Day',
+    '2026-09-11': 'Vacation: Full Day (Rejected)',
+    '2026-09-15': 'Sick Leave: Full Day',
+    '2026-09-17': ['Vacation: Full Day (Rejected)', 'Sick Leave: Full Day'],
+    '2026-09-21': 'Official Business: Full Day',
+  };
+  const HOLIDAYS = {
+    '2026-08-31': "National Heroes Day",
+    '2026-11-01': "All Saints' Day",
+  };
+  const REJECT = { '2026-09-30': 'Request overlaps an existing request for this plan.' };
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const pad = (n) => String(n).padStart(2, '0');
+  const key = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
+  const q = new URLSearchParams(location.search);
+  const today = q.get('today') ? new Date(q.get('today') + 'T00:00:00') : new Date();
+  let cy = today.getFullYear(), cm = today.getMonth();
+
+  const saved = () => JSON.parse(localStorage.getItem('mock-hcm-requests') || '[]');
+  function events(k) {
+    const list = [];
+    if (FIXED_EVENTS[k]) list.push(...[].concat(FIXED_EVENTS[k]));
+    for (const r of saved()) if (r.fromIso === k) list.push(`${PLANS[r.plan] || r.plan}: Full Day${r.action === 'draft' ? ' (Draft)' : ''}`);
+    return list;
+  }
+
+  function render() {
+    document.querySelector('.month').textContent = MONTHS[cm];
+    document.querySelector('.year').textContent = cy;
+    const grid = document.getElementById('grid');
+    grid.innerHTML = '';
+    const first = new Date(cy, cm, 1);
+    const start = new Date(cy, cm, 1 - first.getDay());
+    for (let w = 0; w < 6; w++) {
+      const tr = document.createElement('tr');
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + w * 7 + i);
+        const k = key(d.getFullYear(), d.getMonth(), d.getDate());
+        const td = document.createElement('td');
+        if (d.getMonth() !== cm) td.classList.add('alternate');
+        td.dataset.date = k; // deliberately not "data-key": filer must work from day numbers
+        td.innerHTML = `<span class="day-text">${d.getDate()}</span>`;
+        if (HOLIDAYS[k]) { td.classList.add('holiday'); td.innerHTML += `<div class="holiday-name">${HOLIDAYS[k]}</div>`; }
+        const ev = events(k);
+        if (ev.length) td.innerHTML += `<div class="events">${ev.map((e) => `<div class="calendar-event">${e}</div>`).join('')}</div>`;
+        td.addEventListener('dblclick', () => openDialog(k));
+        tr.appendChild(td);
+      }
+      grid.appendChild(tr);
+    }
+  }
+  // simulate async event loading after month change
+  function nav(delta) {
+    cm += delta;
+    if (cm < 0) { cm = 11; cy--; } if (cm > 11) { cm = 0; cy++; }
+    document.getElementById('grid').innerHTML = '';
+    document.querySelector('.month').textContent = MONTHS[cm];
+    document.querySelector('.year').textContent = cy;
+    setTimeout(render, 300);
+  }
+  document.querySelector('.prev').onclick = () => nav(-1);
+  document.querySelector('.next').onclick = () => nav(1);
+  document.getElementById('todayBtn').onclick = () => { cy = today.getFullYear(); cm = today.getMonth(); render(); };
+
+  const $ = (id) => document.getElementById(id);
+  function openDialog(k) {
+    const [y, m, d] = k.split('-');
+    $('plan').value = ''; $('planDesc').textContent = '';
+    $('dateFrom').value = `${d}/${m}/${y}`; $('dateTo').value = `${d}/${m}/${y}`;
+    $('fullDay').checked = true; $('halfDay').checked = false; $('otherHours').checked = false;
+    $('rSubmit').checked = true; $('info').value = '';
+    $('err').style.display = 'none'; $('err').textContent = '';
+    $('dlg').classList.add('is-visible'); $('overlay').classList.add('is-visible');
+  }
+  function closeDialog() { $('dlg').classList.remove('is-visible'); $('overlay').classList.remove('is-visible'); }
+  // plan description is looked up asynchronously, like the real lookup
+  $('plan').addEventListener('change', () => {
+    const v = $('plan').value.trim();
+    $('planDesc').textContent = '';
+    setTimeout(() => { $('planDesc').textContent = PLANS[v] || ''; $('avail').textContent = PLANS[v] ? '10.00' : '-'; }, 400);
+  });
+  const dmyToIso = (s) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; };
+  function fail(msg) { $('err').textContent = msg; $('err').style.display = 'block'; }
+  $('cancelBtn').onclick = closeDialog;
+  $('okBtn').onclick = () => {
+    const plan = $('plan').value.trim();
+    const fromIso = dmyToIso($('dateFrom').value), toIso = dmyToIso($('dateTo').value);
+    if (!PLANS[plan]) return fail('Plan is required.');
+    if (!fromIso || !toIso) return fail('Invalid date. Use DD/MM/YYYY.');
+    if (REJECT[fromIso]) return setTimeout(() => fail(REJECT[fromIso]), 300);
+    const req = {
+      plan, from: $('dateFrom').value, to: $('dateTo').value, fromIso, toIso,
+      fullDay: $('fullDay').checked, halfDay: $('halfDay').checked, otherHours: $('otherHours').checked,
+      action: document.querySelector('input[name=action]:checked').value, info: $('info').value,
+    };
+    setTimeout(() => {
+      localStorage.setItem('mock-hcm-requests', JSON.stringify([...saved(), req]));
+      closeDialog();
+      setTimeout(render, 500);
+    }, 300);
+  };
+  render();
+})();
+</script>
+</body>
+</html>

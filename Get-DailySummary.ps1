@@ -5,6 +5,7 @@
   office  : at least one reading that day was 'office'
   wfh     : at least one 'remote' reading and none 'office'
   unknown : no readings (PC off - possibly leave) or only 'offline' readings. Never guessed.
+  Readings at or after config file_time (default 16:30) are ignored: they never decide a day.
 .EXAMPLE
   .\Get-DailySummary.ps1
   .\Get-DailySummary.ps1 -From 2025-01-01 -To 2025-01-31 -AsJson -JsonPath .\jan.json
@@ -34,9 +35,16 @@ if (Test-Path -LiteralPath $LogPath) {
     Write-Warning "Presence log not found: $LogPath (all days will be 'unknown')"
 }
 
+# Whole-day rule: a day is decided by its working-hours readings only. Readings at or after
+# file_time (default 16:30) - or with no readable time - are ignored, so an evening reading never decides a day.
+$fileTime = if ($config.PSObject.Properties.Name -contains 'file_time' -and $config.file_time) { [string]$config.file_time } else { '16:30' }
+if ($fileTime -notmatch '^\d{2}:\d{2}$') { throw "config file_time must be HH:mm (got '$fileTime')" }
 $byDate = @{}
 foreach ($r in $readings) {
     if (-not $r.date) { continue }
+    $ts = [string]$r.timestamp
+    if ($ts -notmatch '^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2})') { Write-Verbose "ignored reading without a time: $ts"; continue }
+    if ([string]::CompareOrdinal($Matches[1], $fileTime) -ge 0) { Write-Verbose "ignored after-hours reading: $ts"; continue }
     if (-not $byDate.ContainsKey($r.date)) { $byDate[$r.date] = New-Object System.Collections.ArrayList }
     [void]$byDate[$r.date].Add([string]$r.status)
 }
