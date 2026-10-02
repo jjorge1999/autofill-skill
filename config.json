@@ -1,8 +1,24 @@
 {
-  "office_ssids": ["OFFICE-WIFI-NAME"],
-  "office_gateway_macs": [],
-  "wired_office_dns_suffixes": [],
-  "check_times": ["10:00", "13:00", "16:00"],
-  "workdays": ["Mon", "Tue", "Wed", "Thu", "Fri"],
-  "log_path": "%LOCALAPPDATA%\\InforAutofill\\presence.csv"
+    "office_ssids":  [
+                         "infor.business"
+                     ],
+    "office_gateway_macs":  [
+                                "CC-79-D7-94-75-EC"
+                            ],
+    "wired_office_dns_suffixes":  [
+
+                                  ],
+    "check_times":  [
+                        "10:00",
+                        "13:00",
+                        "16:00"
+                    ],
+    "workdays":  [
+                     "Mon",
+                     "Tue",
+                     "Wed",
+                     "Thu",
+                     "Fri"
+                 ],
+    "log_path":  "%LOCALAPPDATA%\\InforAutofill\\presence.csv"
 }

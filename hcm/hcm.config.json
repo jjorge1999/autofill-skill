@@ -11,6 +11,7 @@
     "channel": "msedge",
     "userDataDir": "%LOCALAPPDATA%\\InforAutofill\\browser-profile"
   },
+  "dateFormat": "M/D/YYYY",
   "planCodes": {
     "wfh": "248",
     "vacation": null,
@@ -39,19 +40,22 @@
     "monthHeaderRegex": "^(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(\\d{4})$",
     "monthHeaderCss": null,
     "prevMonth": [
+      { "css": ".fc-button-prev" },
       { "css": "button.prev" },
       { "role": "button", "name": "/previous|prev\\b/i" },
       { "css": "[aria-label*='previous' i], [title*='previous' i]" }
     ],
     "nextMonth": [
+      { "css": ".fc-button-next" },
       { "css": "button.next" },
       { "role": "button", "name": "/next/i" },
       { "css": "[aria-label*='next' i], [title*='next' i]" }
     ],
-    "dayCell": "td[data-key], .monthview-table td, [role='gridcell']",
-    "dayNumber": ".day-text, .day-number, .date-number",
-    "otherMonthClassRegex": "\\b(alternate|prev-month|next-month|other-month|outside-month|is-other-month)\\b",
+    "dayCell": "td.fc-day[data-date], td[data-key], .monthview-table td, [role='gridcell']",
+    "dayNumber": ".fc-day-number, .day-text, .day-number, .date-number",
+    "otherMonthClassRegex": "\\b(alternate|prev-month|next-month|other-month|outside-month|is-other-month|fc-other-month)\\b",
     "eventSelector": ".calendar-event, .calendar-event-content, .event-item",
+    "overlayEventSelector": ".fc-event",
     "holidaySelector": ".holiday, .is-holiday, .calendar-holiday",
     "entryTextRegex": ":\\s*(Full Day|Half Day|\\d)|Hours|Telecommut|Vacation|Leave|Sick|Pending|Approved|Draft|Rejected",
     "cellTextIgnoreRegex": "",
@@ -67,8 +71,8 @@
       { "css": ".modal:has-text('Request Time Off')" }
     ],
     "planInput": [{ "label": "/^Plan/i" }, { "near": "Plan", "nth": 0 }],
-    "dateFrom": [{ "near": "Dates", "nth": 0 }, { "label": "/^Dates/i" }],
-    "dateTo": [{ "near": "Dates", "nth": 1 }],
+    "dateFrom": [{ "css": "input.PrmBeginDate" }, { "near": "Dates", "nth": 0 }, { "label": "/^Dates/i" }],
+    "dateTo": [{ "css": "input.PrmEndDate" }, { "near": "Dates", "nth": 1 }],
     "fullDay": [{ "label": "Full Day", "exact": true }, { "role": "checkbox", "name": "Full Day" }],
     "submitRadio": [{ "label": "Submit request for approval" }, { "role": "radio", "name": "/Submit request for approval/i" }],
     "draftRadio": [{ "label": "Save as draft and submit later" }, { "role": "radio", "name": "/Save as draft/i" }],

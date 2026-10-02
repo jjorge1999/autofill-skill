@@ -424,29 +424,46 @@ async function run(argv, hooks = {}) {
     await dateInput.press('Tab');
     step(`Date = ${headerDate} (field now '${await dateInput.inputValue()}')`);
 
+    // Picks the latest timesheet before this week in a "Timesheet" dropdown and ticks Import Hours.
+    // Used on the Document Header and on the grid's Import screen, which share these two controls.
+    const pickImportSource = async (f) => {
+      const select = await mustResolve(f, S.timesheetSelect, 'Timesheet select', { state: 'attached' });
+      const options = await select.evaluate(s => Array.from(s.options).map(o => ({ value: o.value, label: (o.textContent || '').trim() })));
+      const periods = options.map(o => ({ ...o, p: parsePeriod(o.label) })).filter(o => o.p);
+      const prev = periods.filter(o => iso(o.p.end) < iso(week.start)).sort((x, y) => x.p.end - y.p.end).pop();
+      if (!prev) throw new XmError('UI', `No previous timesheet in the dropdown to import from (options: ${options.map(o => o.label).join(' | ')})`);
+      await select.selectOption(prev.value ? { value: prev.value } : { label: prev.label }, { force: true });
+      const chosen = await select.evaluate(s => (s.options[s.selectedIndex] && s.options[s.selectedIndex].textContent || '').trim());
+      if (chosen !== prev.label) throw new XmError('UI', `Selecting '${prev.label}' failed (dropdown shows '${chosen}')`);
+      step(`Timesheet = ${prev.label}`);
+      const imp = await mustResolve(f, S.importHours, 'Import Hours checkbox', { state: 'attached' });
+      try { await imp.check({ timeout: 3000 }); } catch (e) { await imp.check({ force: true }); }
+      if (!await imp.isChecked()) throw new XmError('UI', 'Could not tick Import Hours');
+      step('Import Hours ticked');
+    };
+
     const select = await mustResolve(frame, S.timesheetSelect, 'Timesheet select', { state: 'attached' });
     const options = await select.evaluate(s => Array.from(s.options).map(o => ({ value: o.value, label: (o.textContent || '').trim() })));
     const periods = options.map(o => ({ ...o, p: parsePeriod(o.label) })).filter(o => o.p);
     log.timesheetOptions = options.map(o => o.label);
     const existing = periods.find(o => iso(o.p.start) <= iso(week.end) && iso(o.p.end) >= iso(week.start));
     if (existing) {
-      throw new XmError('EXISTS', `A timesheet for ${existing.label} already exists; not creating a duplicate.` +
-        (opts.forceEdit ? ' (--force-edit: editing an existing timesheet is not implemented yet; open it in XM and edit it manually.)' : ''));
+      // An empty draft (e.g. a run that stopped after the header Save) is reopened and filled; anything else is left alone.
+      frame = await openEmptyDraft(page, cfg, S, T, existing.label, url, step);
+      if (!frame) throw new XmError('EXISTS', `A timesheet for ${existing.label} already exists and is not an empty draft; not touching it.`);
+      await (await mustResolve(frame, S.gridImport, 'grid Import button')).click();
+      const importFrame = await waitForFrame(page, S.importScreen, T.gridMs, T.pollMs);
+      if (!importFrame) { await shot('no-import'); throw new XmError('UI', "The Import screen did not appear after clicking Import."); }
+      await pickImportSource(importFrame);
+      await (await mustResolve(importFrame, S.importConfirm, 'Import button on the Import screen')).click();
+      step('Import clicked');
+      const goneBy = Date.now() + T.gridMs;
+      while (await findFrame(page, S.importScreen) && Date.now() < goneBy) await sleep(T.pollMs);
+    } else {
+      await pickImportSource(frame);
+      await (await mustResolve(frame, S.headerSave, 'header Save button')).click();
+      step('header Save clicked');
     }
-    const prev = periods.filter(o => iso(o.p.end) < iso(week.start)).sort((x, y) => x.p.end - y.p.end).pop();
-    if (!prev) throw new XmError('UI', `No previous timesheet in the dropdown to import from (options: ${log.timesheetOptions.join(' | ')})`);
-    await select.selectOption(prev.value ? { value: prev.value } : { label: prev.label }, { force: true });
-    const chosen = await select.evaluate(s => (s.options[s.selectedIndex] && s.options[s.selectedIndex].textContent || '').trim());
-    if (chosen !== prev.label) throw new XmError('UI', `Selecting '${prev.label}' failed (dropdown shows '${chosen}')`);
-    step(`Timesheet = ${prev.label}`);
-
-    const imp = await mustResolve(frame, S.importHours, 'Import Hours checkbox', { state: 'attached' });
-    try { await imp.check({ timeout: 3000 }); } catch (e) { await imp.check({ force: true }); }
-    if (!await imp.isChecked()) throw new XmError('UI', 'Could not tick Import Hours');
-    step('Import Hours ticked');
-
-    await (await mustResolve(frame, S.headerSave, 'header Save button')).click();
-    step('header Save clicked');
 
     // 6. grid
     frame = await waitForFrame(page, S.editTimeItems, T.gridMs, T.pollMs);
@@ -580,6 +597,33 @@ async function run(argv, hooks = {}) {
       log.logFile = f;
     } catch (e) { console.error(`[xm] could not write run log: ${e.message}`); }
   }
+}
+
+// Opens the week's existing timesheet from My Documents if it is an empty draft (status matches
+// selectors.emptyDraftStatus, every amount 0). Returns its Edit Time Items frame, or null to leave it alone.
+async function openEmptyDraft(page, cfg, S, T, label, url, step) {
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  let row = null;
+  const deadline = Date.now() + T.navStepMs;
+  while (!row && Date.now() < deadline) {
+    for (const f of page.frames()) {
+      const r = f.locator(S.documentRow).filter({ hasText: label });
+      if (await r.count().catch(() => 0)) { row = r; break; }
+    }
+    if (!row) await sleep(T.pollMs);
+  }
+  if (!row) { step(`${label} not found in My Documents`); return null; }
+  if (await row.count() > 1) { step(`${label}: more than one document in My Documents`); return null; }
+  const cells = (await row.locator('td').allInnerTexts()).map(t => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  step(`existing ${label}: ${cells.join(' | ')}`);
+  const amounts = cells.filter(t => /^\d[\d,]*\.\d+$/.test(t)).map(t => Number(t.replace(/,/g, '')));
+  const statusRe = toMatcher(S.emptyDraftStatus);
+  if (!cells.some(t => statusRe.test(t)) || !amounts.length || amounts.some(n => n !== 0)) return null;
+  await row.getByText(label).first().click();
+  const grid = await waitForFrame(page, S.editTimeItems, T.gridMs, T.pollMs);
+  if (!grid) throw new XmError('UI', `Opened ${label} but its 'Edit Time Items' screen did not appear.`);
+  step(`opened empty draft ${label}`);
+  return grid;
 }
 
 // Clicks Yes/OK/Submit/Confirm in an in-page modal if one appears (native dialogs are auto-accepted).

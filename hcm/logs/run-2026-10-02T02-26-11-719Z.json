@@ -1,0 +1,52 @@
+{
+  "startedAt": "2026-10-02T02:26:11.719Z",
+  "today": "2026-10-02",
+  "mode": "draft",
+  "dryRun": true,
+  "summary": "C:\\Users\\jjorge\\AppData\\Local\\Temp\\infor-summary-d2ec0e43-0a31-4ed1-a0c6-c3437cde59d7.json",
+  "overrides": "C:\\InforAutofill\\hcm\\overrides.json",
+  "results": [
+    {
+      "date": "2026-09-28",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-29",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-30",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-01",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-05",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "screenshot": "C:\\InforAutofill\\hcm\\screenshots\\2026-10-05-error.png",
+      "result": "error",
+      "detail": "locator.click: Timeout 5000ms exceeded."
+    }
+  ],
+  "finishedAt": "2026-10-02T02:27:03.919Z",
+  "unknownDays": []
+}

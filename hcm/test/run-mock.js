@@ -27,6 +27,8 @@ function writeConfig(name) {
   fs.writeFileSync(p, JSON.stringify({
     urls: { app: MOCK_URL, portal: null, appUrlPatterns: ['^file:'] },
     browser: { channel: null, userDataDir: path.join(tmp, `${name}-profile`) },
+    dateFormat: 'DD/MM/YYYY', // the mock's format; the real tenant uses M/D/YYYY
+
     planCodes: { wfh: '248', vacation: null, sick: '300' },
     planLabels: { 248: 'Telecommuting', 300: 'Sick Leave' },
     paths: { logDir: path.join(tmp, `${name}-logs`), screenshotDir: path.join(tmp, `${name}-shots`) },

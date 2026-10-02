@@ -10,12 +10,17 @@
   .\run-hcm.ps1 -From 2026-09-01 -To 2026-09-30 --mode draft
   .\run-hcm.ps1 --mode submit
 #>
-param(
-    [string]$From,
-    [string]$To
-)
-# Intentionally not [CmdletBinding()]: unbound args such as --dry-run land in $args.
+# No param() block: declared parameters bind positionally, so '--mode draft' would land in -From.
+# Parse -From/-To by name and pass everything else (--mode, --dry-run, ...) through to node.
 $ErrorActionPreference = 'Stop'
+$From = $null; $To = $null; $passThru = @()
+for ($i = 0; $i -lt $args.Count; $i++) {
+    switch -Regex ([string]$args[$i]) {
+        '^-From$' { $From = $args[++$i]; break }
+        '^-To$' { $To = $args[++$i]; break }
+        default { $passThru += $args[$i] }
+    }
+}
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     throw 'Node.js not found on PATH. Install Node 18+ from https://nodejs.org/'
@@ -35,7 +40,7 @@ try {
     & $summaryScript @summaryArgs | Out-Null
     if (-not (Test-Path -LiteralPath $tmp)) { throw "Get-DailySummary.ps1 did not produce $tmp" }
 
-    & node (Join-Path $PSScriptRoot 'file-hcm.js') --summary $tmp @args
+    & node (Join-Path $PSScriptRoot 'file-hcm.js') --summary $tmp @passThru
     $code = $LASTEXITCODE
 } finally {
     Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue

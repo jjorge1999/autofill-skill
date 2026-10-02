@@ -1,0 +1,51 @@
+{
+  "startedAt": "2026-10-02T02:35:03.026Z",
+  "today": "2026-10-02",
+  "mode": "submit",
+  "dryRun": false,
+  "summary": "C:\\Users\\jjorge\\AppData\\Local\\Temp\\infor-summary-021460de-8082-47c5-96ab-bcd21efa04a3.json",
+  "overrides": "C:\\InforAutofill\\hcm\\overrides.json",
+  "results": [
+    {
+      "date": "2026-09-28",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-29",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-30",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-01",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-05",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "filed",
+      "detail": "calendar shows \"Telecommuting: Full Day\"; message: The following action 'Request Time Off' completed"
+    }
+  ],
+  "finishedAt": "2026-10-02T02:35:59.569Z",
+  "unknownDays": []
+}

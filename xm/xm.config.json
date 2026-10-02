@@ -40,9 +40,8 @@
     },
     {
       "click": [
-        { "role": "menuitem", "name": "/^\\s*Timesheet\\s*$/i" },
-        { "role": "link", "name": "/^\\s*Timesheet\\s*$/i" },
-        { "text": "/^\\s*Timesheet\\s*$/i" }
+        { "css": "[id='myDocumentsForm:newTSLbl']" },
+        { "role": "menuitem", "name": "/^\\s*Timesheet\\s*$/i" }
       ]
     }
   ],
@@ -78,11 +77,16 @@
       { "label": "/Import Hours/i" },
       { "role": "checkbox", "name": "/Import Hours/i" }
     ],
+    "documentRow": "tr",
+    "emptyDraftStatus": "/\\bCreate\\b/i",
+    "gridImport": [{ "css": "[id='mainForm:importBtn']" }, { "role": "button", "name": "Import", "exact": true }],
+    "importScreen": "[id='tsCalendarImportForm:importBtn']",
+    "importConfirm": [{ "css": "[id='tsCalendarImportForm:importBtn']" }, { "role": "button", "name": "Import", "exact": true }],
     "headerSave": [{ "role": "button", "name": "Save", "exact": true }, { "css": "button:has-text('Save')" }],
     "gridSave": [{ "role": "button", "name": "Save", "exact": true }, { "css": "button:has-text('Save')" }],
     "gridCancel": [{ "role": "button", "name": "Cancel", "exact": true }, { "css": "button:has-text('Cancel')" }],
-    "submitButton": [{ "role": "button", "name": "Submit", "exact": true }, { "css": "button:has-text('Submit')" }],
-    "savedMarker": "role=button[name='Submit']",
+    "submitButton": [{ "role": "button", "name": "Submit", "exact": true }, { "css": "button:has-text('Submit')" }, { "text": "/^\\s*Submit\\s*$/i" }],
+    "savedMarker": "text=/^\\s*Submit\\s*$/i",
     "submittedMarker": "text=/Submitted/i",
     "confirmDialog": "[role='dialog'], [role='alertdialog'], .modal",
     "confirmButtonName": "/^(Yes|OK|Submit|Confirm|Discard)$/i",

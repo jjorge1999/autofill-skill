@@ -1,0 +1,47 @@
+{
+  "startedAt": "2026-10-02T01:15:01.864Z",
+  "today": "2026-10-02",
+  "mode": "draft",
+  "dryRun": true,
+  "summary": "C:\\Users\\jjorge\\AppData\\Local\\Temp\\infor-summary-44af87b6-538d-4d06-b78c-cafd5a02a6bc.json",
+  "overrides": "C:\\InforAutofill\\hcm\\overrides.json",
+  "results": [
+    {
+      "date": "2026-09-28",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "error",
+      "detail": "Previous month button not found"
+    },
+    {
+      "date": "2026-09-29",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "error",
+      "detail": "Previous month button not found"
+    },
+    {
+      "date": "2026-09-30",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-01",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-02",
+      "status": "office",
+      "result": "skipped-office"
+    }
+  ],
+  "finishedAt": "2026-10-02T01:15:49.550Z",
+  "unknownDays": []
+}

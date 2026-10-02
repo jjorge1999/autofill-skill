@@ -1,0 +1,47 @@
+{
+  "startedAt": "2026-10-02T01:24:50.659Z",
+  "today": "2026-10-02",
+  "mode": "draft",
+  "dryRun": false,
+  "summary": "C:\\Users\\jjorge\\AppData\\Local\\Temp\\infor-summary-733fbb74-7045-4b26-9fe4-4e3fa551e5a0.json",
+  "overrides": "C:\\InforAutofill\\hcm\\overrides.json",
+  "results": [
+    {
+      "date": "2026-09-28",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-29",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-30",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-01",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-02",
+      "status": "office",
+      "result": "skipped-office"
+    }
+  ],
+  "finishedAt": "2026-10-02T01:25:17.230Z",
+  "unknownDays": []
+}

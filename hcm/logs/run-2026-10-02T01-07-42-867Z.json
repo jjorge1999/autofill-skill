@@ -1,0 +1,24 @@
+{
+  "startedAt": "2026-10-02T01:07:42.867Z",
+  "today": "2026-10-02",
+  "mode": "draft",
+  "dryRun": false,
+  "summary": "C:\\Users\\jjorge\\AppData\\Local\\Temp\\infor-summary-6ef3fb71-7241-40b7-8f3a-0e5b7dbf5174.json",
+  "overrides": null,
+  "results": [
+    {
+      "date": "2026-10-01",
+      "status": "unknown",
+      "result": "needs-input"
+    },
+    {
+      "date": "2026-10-02",
+      "status": "office",
+      "result": "skipped-office"
+    }
+  ],
+  "finishedAt": "2026-10-02T01:07:42.868Z",
+  "unknownDays": [
+    "2026-10-01"
+  ]
+}

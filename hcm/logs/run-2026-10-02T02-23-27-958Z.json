@@ -1,0 +1,52 @@
+{
+  "startedAt": "2026-10-02T02:23:27.958Z",
+  "today": "2026-10-02",
+  "mode": "draft",
+  "dryRun": true,
+  "summary": "C:\\Users\\jjorge\\AppData\\Local\\Temp\\infor-summary-46303689-41ec-469d-9c3a-e022426dfc30.json",
+  "overrides": "C:\\InforAutofill\\hcm\\overrides.json",
+  "results": [
+    {
+      "date": "2026-09-28",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-29",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-30",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-01",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-05",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "screenshot": "C:\\InforAutofill\\hcm\\screenshots\\2026-10-05-error.png",
+      "result": "error",
+      "detail": "locator.click: Timeout 30000ms exceeded."
+    }
+  ],
+  "finishedAt": "2026-10-02T02:24:32.304Z",
+  "unknownDays": []
+}

@@ -23,6 +23,23 @@ const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parseYmd = (s) => { const [y, m, d] = s.split('-').map(Number); return { y, m, d }; };
 const toDmy = (s) => { const { y, m, d } = parseYmd(s); return `${pad(d)}/${pad(m)}/${y}`; };
+// Dialog date format, e.g. 'DD/MM/YYYY' or 'M/D/YYYY' (D/M = no zero padding).
+const DATE_TOKENS = /YYYY|DD|MM|D|M/g;
+const formatDate = (s, fmt) => {
+  const { y, m, d } = parseYmd(s);
+  const v = { YYYY: y, DD: pad(d), MM: pad(m), D: d, M: m };
+  return fmt.replace(DATE_TOKENS, (t) => String(v[t]));
+};
+/** True when a field value means the same y-m-d as s under fmt (the UI may re-pad what was typed). */
+const sameDate = (value, s, fmt) => {
+  const order = fmt.match(DATE_TOKENS).map((t) => t[0]);
+  const rx = new RegExp(`^${fmt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(DATE_TOKENS, '(\\d+)')}$`);
+  const mt = String(value).trim().match(rx);
+  if (!mt) return false;
+  const got = Object.fromEntries(order.map((k, i) => [k, Number(mt[i + 1])]));
+  const { y, m, d } = parseYmd(s);
+  return got.Y === y && got.M === m && got.D === d;
+};
 const log = (...a) => console.log(...a);
 
 function usage() {
@@ -139,10 +156,11 @@ function specToLocator(scope, spec) {
   if (spec.role) return scope.getByRole(spec.role, spec.name ? { name: parseText(spec.name), ...exact } : {});
   if (spec.text) return scope.getByText(parseText(spec.text), exact);
   if (spec.near) {
-    // n-th editable input that follows the (innermost) element whose text starts with spec.near
+    // editable inputs that follow the (innermost) element whose text starts with spec.near;
+    // firstAvailable picks the n-th *visible* one (datepickers can add hidden inputs in between)
     const t = xq(spec.near);
     const input = "input[not(@type='hidden') and not(@type='checkbox') and not(@type='radio') and not(@type='file') and not(@type='button')]";
-    return scope.locator(`xpath=(.//*[starts-with(normalize-space(.), ${t}) and not(.//*[starts-with(normalize-space(.), ${t})])]/following::${input})[${(spec.nth || 0) + 1}]`);
+    return scope.locator(`xpath=(.//*[starts-with(normalize-space(.), ${t}) and not(.//*[starts-with(normalize-space(.), ${t})])]/following::${input})`);
   }
   if (spec.css) return scope.locator(spec.css);
   throw new Error(`Bad selector spec: ${JSON.stringify(spec)}`);
@@ -158,6 +176,15 @@ async function firstAvailable(scope, specs, timeoutMs = 3000, requireVisible = t
       const loc = specToLocator(scope, spec);
       const nth = typeof spec === 'object' && spec.nth !== undefined && !spec.near ? [spec.nth] : null;
       const count = await loc.count().catch(() => 0);
+      if (typeof spec === 'object' && spec.near) {
+        let seen = 0;
+        for (let i = 0; i < Math.min(count, 10); i++) {
+          const el = loc.nth(i);
+          if (!(await el.isVisible().catch(() => false))) continue;
+          if (seen++ === (spec.nth || 0)) return el;
+        }
+        continue;
+      }
       for (const i of nth || [...Array(Math.min(count, 10)).keys()]) {
         if (i >= count) continue;
         const el = loc.nth(i);
@@ -198,6 +225,14 @@ async function readCells(frame, sel) {
     const otherRx = s.otherMonthClassRegex ? new RegExp(s.otherMonthClassRegex, 'i') : null;
     const cells = [...document.querySelectorAll(s.dayCell)].filter(visible)
       .filter((c) => !c.closest('[role="dialog"], .modal, .popupmenu-wrapper, .datepicker'));
+    // FullCalendar draws entries in a separate layer positioned over the grid, not inside the day cells,
+    // so match them to cells by geometry.
+    const overlays = s.overlayEventSelector
+      ? [...document.querySelectorAll(s.overlayEventSelector)].filter(visible)
+        .map((e) => ({ r: e.getBoundingClientRect(), text: (e.textContent || '').replace(/\s+/g, ' ').trim() }))
+      : [];
+    const overlaps = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2
+      && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
     let phase = 0;
     return cells.map((c, idx) => {
       c.setAttribute('data-autofill-idx', String(idx));
@@ -221,7 +256,10 @@ async function readCells(frame, sel) {
         const t = n.textContent.replace(/\s+/g, ' ').trim();
         if (t) parts.push(t);
       }
-      const key = (c.getAttribute('data-key') || '').trim();
+      const cr = c.getBoundingClientRect();
+      const overlayHits = overlays.filter((o) => overlaps(o.r, cr));
+      for (const o of overlayHits) if (o.text) parts.push(o.text);
+      const key = (c.getAttribute('data-key') || c.getAttribute('data-date') || '').replace(/-/g, '').trim();
       return {
         idx,
         day,
@@ -407,11 +445,26 @@ async function openDialog(page, frame, cfg, cellIdx, state) {
 }
 
 async function setChecked(dlg, specs, labelText) {
-  const el = await firstAvailable(dlg, specs, 3000, false);
+  // HCM reveals Full Day / Half Day only after the plan's details load, a moment after its label shows,
+  // so wait for a visible control before falling back to a hidden one.
+  const el = (await firstAvailable(dlg, specs, 10000)) || (await firstAvailable(dlg, specs, 0, false));
   if (!el) throw new Error(`"${labelText}" control not found`);
   if (await el.isChecked().catch(() => false)) return;
   try { await el.check({ timeout: 3000 }); } catch {
-    try { await el.check({ force: true, timeout: 3000 }); } catch { await dlg.getByText(labelText, { exact: true }).first().click(); }
+    try { await el.check({ force: true, timeout: 3000 }); } catch {
+      // Infor's styled checkboxes keep the <input> invisible and render the visible control on its <label>;
+      // the dialog also holds hidden copies, so click the visible label and judge by the input it points to.
+      const esc = labelText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const labels = dlg.locator('label').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) });
+      const n = Math.min(await labels.count().catch(() => 0), 10);
+      for (let i = 0; i < n; i++) {
+        const lb = labels.nth(i);
+        if (!(await lb.isVisible().catch(() => false))) continue;
+        await lb.click({ timeout: 5000 });
+        const forId = await lb.getAttribute('for');
+        if (forId && (await dlg.locator(`[id="${forId}"]`).isChecked().catch(() => false))) return;
+      }
+    }
   }
   if (!(await el.isChecked().catch(() => false))) throw new Error(`Could not select "${labelText}"`);
 }
@@ -447,8 +500,23 @@ async function cancelDialog(page, dlg, cfg) {
 
 async function fillAndSave(page, frame, dlg, cfg, args, job, shotDir) {
   const sel = cfg.selectors;
-  const dmy = toDmy(job.date);
+  const dateFmt = cfg.dateFormat || 'DD/MM/YYYY';
+  const dmy = formatDate(job.date, dateFmt);
   const label = (cfg.planLabels || {})[job.planCode];
+
+  // Dates before the plan: editing a date makes HCM clear the plan (and its Full Day / Half Day options).
+  // The dialog opens pre-filled with the clicked day, so only retype a date that differs.
+  const dateField = async (specs, what) => {
+    const el = await firstAvailable(dlg, specs, 3000);
+    if (!el) throw new Error(`${what} field not found`);
+    // pin it: the "n-th input after 'Dates'" locator resolves elsewhere once the plan's fields appear
+    const id = await el.getAttribute('id').catch(() => null);
+    const pinned = id ? dlg.locator(`[id="${id}"]`) : el;
+    if (!sameDate(await pinned.inputValue(), job.date, dateFmt)) await fillInput(dlg, id ? [`[id="${id}"]`] : specs, dmy, what);
+    return pinned;
+  };
+  const from = await dateField(sel.dateFrom, 'From date');
+  const to = await dateField(sel.dateTo, 'To date');
 
   await fillInput(dlg, sel.planInput, job.planCode, 'Plan');
   if (label) {
@@ -461,8 +529,6 @@ async function fillAndSave(page, frame, dlg, cfg, args, job, shotDir) {
     await sleep(1500);
   }
 
-  const from = await fillInput(dlg, sel.dateFrom, dmy, 'From date');
-  const to = await fillInput(dlg, sel.dateTo, dmy, 'To date');
   await setChecked(dlg, sel.fullDay, 'Full Day');
   await setChecked(dlg, args.mode === 'submit' ? sel.submitRadio : sel.draftRadio,
     args.mode === 'submit' ? 'Submit request for approval' : 'Save as draft and submit later');
@@ -471,7 +537,7 @@ async function fillAndSave(page, frame, dlg, cfg, args, job, shotDir) {
     if (ai) await ai.fill(cfg.additionalInfo);
   }
   const got = [await from.inputValue(), await to.inputValue()];
-  if (got[0] !== dmy || got[1] !== dmy) throw new Error(`Date fields hold "${got[0]}" / "${got[1]}", expected "${dmy}"`);
+  if (!sameDate(got[0], job.date, dateFmt) || !sameDate(got[1], job.date, dateFmt)) throw new Error(`Date fields hold "${got[0]}" / "${got[1]}", expected "${dmy}"`);
 
   if (args.dryRun) {
     const shot = path.join(shotDir, `${job.date}-dryrun.png`);

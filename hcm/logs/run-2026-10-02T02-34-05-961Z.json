@@ -1,0 +1,51 @@
+{
+  "startedAt": "2026-10-02T02:34:05.961Z",
+  "today": "2026-10-02",
+  "mode": "draft",
+  "dryRun": true,
+  "summary": "C:\\Users\\jjorge\\AppData\\Local\\Temp\\infor-summary-f05e72d6-f4de-42cd-851d-f93dcaadaa7b.json",
+  "overrides": "C:\\InforAutofill\\hcm\\overrides.json",
+  "results": [
+    {
+      "date": "2026-09-28",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-29",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "skipped-existing",
+      "detail": "Telecommuting: Full Day"
+    },
+    {
+      "date": "2026-09-30",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-01",
+      "status": "unknown",
+      "override": "office",
+      "result": "skipped-override"
+    },
+    {
+      "date": "2026-10-05",
+      "status": "unknown",
+      "override": "wfh",
+      "plan": "wfh",
+      "planCode": "248",
+      "result": "dry-run",
+      "detail": "filled and cancelled; screenshot C:\\InforAutofill\\hcm\\screenshots\\2026-10-05-dryrun.png"
+    }
+  ],
+  "finishedAt": "2026-10-02T02:34:50.682Z",
+  "unknownDays": []
+}
