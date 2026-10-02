@@ -31,6 +31,8 @@ On the first run, log in to the Edge window that opens. You have up to 5 minutes
 
 1. `xm/holidays.json`: public holidays, e.g. `["2026-12-25"]`.
 2. `..\hcm\overrides.json`: e.g. `{"2026-10-19": "vacation"}`. Values are `vacation`, `sick`, `holiday`, `wfh` or `office`.
+   With `--leave <file>` (HCM leave export), an HCM leave entry wins over a `wfh` / `office` override (logged as a
+   warning); a leave-type override still wins over the HCM entry.
 3. The presence summary (`office` / `wfh`).
 
 If any weekday is still `unknown`, nothing is filled. The script exits with code 2 and lists the dates for you to add to `overrides.json`. Use `--assume-unknown-workday` to count those days as workdays instead.

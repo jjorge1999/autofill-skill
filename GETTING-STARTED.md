@@ -122,7 +122,9 @@ If any weekday is still `unknown`, it files nothing and exits with code `2`, lis
 2. If a dialog asks about an `unknown` day, answer WFH / Office / Leave.
 3. If a notification says Infor needs a sign-in, sign in in the Edge window that opens; the run continues.
 4. If a notification says an XM week already has a timesheet, check it in XM; it is not touched.
-5. To preview what the next run would do: `.\Invoke-AutoFile.ps1 -WhatIf`
+5. If you answer "Leave" in the dialog, file that leave in HCM yourself (XM counts it 8 h; HCM gets nothing).
+6. To preview what the next run would do: `.\Invoke-AutoFile.ps1 -WhatIf` (day statuses and the days it would ask about; it does not check HCM leave or XM).
+
 ## 9. A note on publishing
 
 Publishing this project to GitHub is still pending (connection issue), so it currently lives only in the local git repo.

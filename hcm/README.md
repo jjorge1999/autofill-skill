@@ -7,7 +7,7 @@ presence summary from `..\Get-DailySummary.ps1`:
 |---|---|
 | `wfh` | files plan `248` (Telecommuting), full day |
 | override `vacation` / `sick` / … | files the plan code configured in `planCodes` (skipped with a warning while it is `null`) |
-| `office` | nothing |
+| `office` | nothing, whatever the override says (result `skipped-office-reading`, with a WARNING) |
 | `unknown` | nothing. Listed at the end as "unknown days need your input" |
 
 A date is also skipped if it is a weekend, after today (unless you pass `--allow-future`), or if the calendar
@@ -43,13 +43,17 @@ Options: `--summary`, `--overrides`, `--from`, `--to`, `--mode draft|submit`, `-
 
 The default mode is **draft** until you've checked the drafts in HCM. After that, switch to `--mode submit`.
 
-**Leave days:** put them in `hcm\overrides.json`. Overrides win over the detected status:
+**Leave days:** put them in `hcm\overrides.json`. Overrides win over the detected status, except that a day with an
+office reading is never filed:
 
 ```json
 { "2026-10-19": "vacation", "2026-10-20": "vacation", "2026-10-21": "office" }
 ```
 
 Valid values are any key of `planCodes`, plus `office` / `skip` (never file).
+
+With `--leave-out`, each calendar entry is judged on its own (a rejected entry does not hide another entry in the same
+cell). Entries that are neither Telecommuting nor a recognised leave are printed as `UNRECOGNISED <date>: <text>`.
 
 **Results:** each run writes `logs\run-<timestamp>.json`. Every date gets one of these results:
 `filed`, `filed-unverified`, `skipped-existing`, `skipped-holiday`, `skipped-weekend`, `skipped-future`,

@@ -2,8 +2,10 @@
 .SYNOPSIS
   Registers (or removes) the 'InforAutofill-PresenceCheck' and 'InforAutofill-File' scheduled tasks for the current user.
 .DESCRIPTION
-  One weekly trigger per check_time on the configured workdays, plus an at-logon trigger.
-  Runs only while you are logged on, hidden, no admin rights needed.
+  InforAutofill-PresenceCheck: one weekly trigger per check_time on the configured workdays, plus an at-logon trigger.
+  InforAutofill-File: runs Invoke-AutoFile.ps1 (HCM Telecommuting for WFH days, XM weekly timesheet) on the
+  workdays at file_time and 2 minutes after logon.
+  Both run only while you are logged on, hidden, no admin rights needed.
 .EXAMPLE
   .\Install-Scheduler.ps1
   .\Install-Scheduler.ps1 -Uninstall

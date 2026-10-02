@@ -37,10 +37,12 @@ Detection uses only local network identity: the Wi-Fi SSID, the default gateway'
 | `wfh`     | at least one off-office network reading and no office readings |
 | `unknown` | no readings (PC off, maybe leave), or offline only. The tool never guesses these days. |
 
+Only readings taken before `file_time` (default 16:30) count: an evening reading never decides a day.
+
 On Windows 11 24H2 and later, Windows only reports the Wi-Fi SSID when Location services are on. If they're off, detection still works through the gateway MAC that `Find-OfficeNetwork.ps1` saved.
 
 Log: `%LOCALAPPDATA%\InforAutofill\presence.csv` (`log_path` in `config.json`).
-Logic tests: `powershell -File .\Tests\Test-Logic.ps1`.
+Logic tests: `powershell -File .\Tests\Test-Logic.ps1`, `.\Tests\Test-Summary.ps1`, `.\Tests\Test-AutoFile.ps1`, `.\Tests\Test-Wrappers.ps1` (and `.\Tests\Test-UI.ps1`, which shows the question dialog for 3 seconds).
 
 ## Unattended filing
 
@@ -51,16 +53,21 @@ A day is filed only once its readings are complete. Today counts only at or afte
 | Case | Action | Asks you? |
 |---|---|---|
 | Workday is `wfh` | HCM: submit Telecommuting Full Day (plan 248) | No |
-| Workday is `office` (includes mixed office + remote) | HCM: nothing | No |
+| Workday is `office` (includes mixed office + remote) | HCM: nothing, even if `hcm/overrides.json` says `wfh` (that override is ignored and reported) | No |
 | Workday has a Vacation / Sick / Leave / holiday entry in HCM (pending or approved) | HCM: nothing. XM: leave, 8 h | No |
-| Workday is `unknown` and has no HCM leave entry | Ask "WFH / Office / Leave"; the answer is saved to `hcm/overrides.json`; WFH then files HCM | **Yes** |
+| Workday is `unknown` and has no HCM leave entry | Ask "WFH / Office / Leave"; the answer is saved to `hcm/overrides.json`; WFH then files HCM. "Leave" files nothing in HCM (file the leave yourself); XM counts it 8 h. The dialog closes by itself after 15 minutes, same as "Ask me later" | **Yes** |
+| HCM day has an entry that is neither Telecommuting nor leave (e.g. Official Business) | Notification; that day's XM week is not filed until the day is set in `hcm/overrides.json` | No |
+| HCM leave entry and a `wfh`/`office` override on the same day | XM: leave, 8 h (HCM leave wins; a leave-type override still wins over HCM) | No |
 | Unanswered `unknown` day at XM time | XM: counted as worked, 9 h | No |
 | XM week has every weekday worked or leave (Friday at `file_time`, or a later catch-up) | XM: fill and **submit** | No |
 | XM week already has a timesheet that is not an empty draft | Left alone; notification to check it in XM | No |
+| HCM request or XM submit not confirmed on screen | Notification to check it; not counted as filed, retried next run | No |
+| Days more than 14 days back (HCM) or weeks more than 2 weeks back (XM) not yet handled | Not filed; notification listing them (XM weeks reported once) | No |
 | Infor session expired | Notification; an Edge window opens for SSO/MFA; the run continues after sign-in | Sign-in only |
 
 Hours: a worked day is 9 h (ERP_M3_Experience 2 + ERP_M3_Maintenance 7), a leave day is 8 h (Personal Time Off And Holidays). Future days, office days and leave days are never filed in HCM.
 
 - Run log: `%LOCALAPPDATA%\InforAutofill\autofile.log`. State: `%LOCALAPPDATA%\InforAutofill\autofile-state.json`.
-- Preview what a run would do (no browser, no dialog, no changes): `.\Invoke-AutoFile.ps1 -WhatIf`
+- Preview (no browser, no dialog, no changes): `.\Invoke-AutoFile.ps1 -WhatIf` lists the day statuses (with overrides) and the days it would ask about. It does not open HCM or XM, so it cannot see HCM leave (a leave day may be listed as one it would ask about) and does not check XM.
+- `-Force` reconsiders the last 14 days for HCM; XM weeks already filed stay done. `-Today` cannot be later than the real date.
 - Remove both scheduled tasks: `.\Install-Scheduler.ps1 -Uninstall`
