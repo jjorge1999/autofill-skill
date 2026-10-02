@@ -53,6 +53,8 @@
   },
   "timeouts": {
     "loginMs": 300000,
+    "headlessLoginMs": 15000,
+    "headlessAppMs": 60000,
     "headerMs": 30000,
     "navStepMs": 20000,
     "gridMs": 30000,

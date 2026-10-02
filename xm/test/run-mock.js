@@ -33,6 +33,9 @@ const summary = write('summary.json', [
 const overrides = write('overrides.json', { '2026-09-23': 'wfh', '2026-09-24': 'vacation' });
 const holidays = write('holidays.json', ['YYYY-MM-DD', '2026-09-25']);
 const noOverrides = write('none.json', {});
+const leaveFile = write('leave.json', { '2026-09-23': 'leave', '2026-09-24': 'sick' });
+const loginCfgFile = write('xm.login.config.json', { ...cfg, navigation: [], timeouts: { ...cfg.timeouts, headlessLoginMs: 1000, headlessAppMs: 5000 } });
+const common = ['--week', '2026-09-22', '--summary', summary, '--holidays', holidays, '--headless', '--non-interactive', '--profile', path.join(tmp, 'profile')];
 
 const base = ['--week', '2026-09-22', '--summary', summary, '--overrides', overrides, '--holidays', holidays,
   '--headless', '--non-interactive', '--profile', path.join(tmp, 'profile')];
@@ -128,6 +131,25 @@ const tests = [
     const r = await go([], portal + '?landing=1');
     assert.strictEqual(r.exitCode, 4);
     assert.match(r.log.error.message, /navigation/);
+  }],
+  ['leave file fills unknown days as leave', async () => {
+    const r = await run([...common, '--overrides', noOverrides, '--leave', leaveFile, '--config', cfgFile, '--url', portal, '--dry-run']);
+    const kind = Object.fromEntries(r.log.days.map(d => [d.date, d.kind]));
+    assert.strictEqual(kind['2026-09-23'], 'leave');
+    assert.strictEqual(kind['2026-09-24'], 'leave');
+    assert.strictEqual(r.exitCode, 0, r.log.error && r.log.error.message);
+  }],
+  ['overrides win over the leave file', async () => {
+    const ov = write('ov-wins.json', { '2026-09-23': 'wfh' });
+    const lv = write('leave-wed.json', { '2026-09-23': 'sick' });
+    const r = await run([...common, '--overrides', ov, '--leave', lv, '--config', cfgFile]);
+    assert.strictEqual(r.log.days.find(d => d.date === '2026-09-23').kind, 'workday');
+    assert.strictEqual(r.exitCode, 2); // Thu still unknown -> stops before the browser
+  }],
+  ['headless run on a login page exits 5', async () => {
+    const r = await run([...common, '--overrides', overrides, '--config', loginCfgFile, '--url', 'data:text/html,<input type="password">']);
+    assert.strictEqual(r.exitCode, 5);
+    assert.strictEqual(r.log.error.code, 'LOGIN_NEEDED');
   }],
 ];
 

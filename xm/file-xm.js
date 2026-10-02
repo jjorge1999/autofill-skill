@@ -8,7 +8,7 @@
  *                   [--no-import] [--config xm.config.json] [--overrides f] [--holidays f]
  *                   [--url u] [--profile dir] [--non-interactive]
  *
- * Exit codes: 0 ok, 1 error, 2 unknown days, 3 timesheet already exists, 4 header screen not reached.
+ * Exit codes: 0 ok, 1 error, 2 unknown days, 3 timesheet already exists, 4 header screen not reached, 5 sign-in needed (headless).
  */
 const fs = require('fs');
 const path = require('path');
@@ -18,9 +18,9 @@ const readline = require('readline');
 const XM_DIR = __dirname;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const LEAVE = ['vacation', 'sick', 'holiday'];
+const LEAVE = ['vacation', 'sick', 'holiday', 'leave'];
 const WORK = ['office', 'wfh'];
-const EXIT = { OK: 0, ERROR: 1, UNKNOWN_DAYS: 2, EXISTS: 3, NAV: 4 };
+const EXIT = { OK: 0, ERROR: 1, UNKNOWN_DAYS: 2, EXISTS: 3, NAV: 4, LOGIN_NEEDED: 5 };
 
 class XmError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -30,7 +30,7 @@ class XmError extends Error {
 function parseArgs(argv) {
   const o = { mode: 'draft' };
   const takes = { '--week': 'week', '--summary': 'summary', '--mode': 'mode', '--config': 'config',
-    '--overrides': 'overrides', '--holidays': 'holidays', '--url': 'url', '--profile': 'profile' };
+    '--overrides': 'overrides', '--holidays': 'holidays', '--url': 'url', '--profile': 'profile', '--leave': 'leave' };
   const flags = { '--dry-run': 'dryRun', '--headless': 'headless', '--assume-unknown-workday': 'assumeUnknownWorkday',
     '--force-edit': 'forceEdit', '--no-import': 'noImport', '--non-interactive': 'nonInteractive', '--help': 'help', '-h': 'help' };
   for (let i = 0; i < argv.length; i++) {
@@ -122,7 +122,7 @@ function loadOverrides(file) {
   const out = {};
   for (const [k, v] of Object.entries(raw)) {
     const val = String(v).toLowerCase();
-    if (!LEAVE.includes(val) && !WORK.includes(val)) throw new XmError('CONFIG', `overrides.json: '${k}' has invalid value '${v}' (use vacation|sick|holiday|wfh|office)`);
+    if (!LEAVE.includes(val) && !WORK.includes(val)) throw new XmError('CONFIG', `overrides.json: '${k}' has invalid value '${v}' (use vacation|sick|holiday|leave|wfh|office)`);
     out[k] = val;
   }
   return out;
@@ -307,7 +307,7 @@ async function run(argv, hooks = {}) {
     const opts = parseArgs(argv);
     log.options = opts;
     if (opts.help) {
-      console.log('Usage: node file-xm.js --summary <file> [--week yyyy-MM-dd] [--mode draft|submit] [--dry-run] [--headless] [--assume-unknown-workday] [--force-edit] [--non-interactive]');
+      console.log('Usage: node file-xm.js --summary <file> [--week yyyy-MM-dd] [--mode draft|submit] [--dry-run] [--headless] [--assume-unknown-workday] [--force-edit] [--non-interactive] [--leave <file>]');
       log.result = 'help';
       return { exitCode: EXIT.OK, log };
     }
@@ -330,7 +330,8 @@ async function run(argv, hooks = {}) {
     const holidaysPath = opts.holidays ? path.resolve(opts.holidays) : resolveFrom(cfgDir, cfg.paths.holidays);
     const src = {
       summary: loadSummary(opts.summary && path.resolve(opts.summary)),
-      overrides: loadOverrides(overridesPath),
+      // HCM leave entries first; explicit overrides win
+      overrides: { ...loadOverrides(opts.leave && path.resolve(opts.leave)), ...loadOverrides(overridesPath) },
       holidays: loadHolidays(holidaysPath),
     };
     if (!opts.summary) warn('No --summary given; every weekday without an override or holiday counts as unknown.');
@@ -341,7 +342,7 @@ async function run(argv, hooks = {}) {
     if (unknown.length) {
       throw new XmError('UNKNOWN_DAYS',
         `Not filling: no office/WFH reading for ${unknown.map(d => `${d.date} (${d.day})`).join(', ')}.\n` +
-        `Add these dates to ${overridesPath}, e.g. {"${unknown[0].date}": "vacation"} (vacation|sick|holiday|wfh|office), ` +
+        `Add these dates to ${overridesPath}, e.g. {"${unknown[0].date}": "vacation"} (vacation|sick|holiday|leave|wfh|office), ` +
         'or rerun with --assume-unknown-workday.');
     }
     const { rows, exp } = expectedHours(days, cfg);
@@ -376,13 +377,21 @@ async function run(argv, hooks = {}) {
 
     // 3. login
     const appPatterns = (cfg.urls.appUrlPatterns || []).map(p => new RegExp(p));
-    const loginDeadline = Date.now() + T.loginMs;
+    const loginStart = Date.now();
+    const loginDeadline = loginStart + T.loginMs;
     let toldLogin = false;
+    let loginSince = 0;
     for (;;) {
       if (await findFrame(page, S.documentHeader)) break;
       const loginVisible = !!(await findFrame(page, S.loginForm));
       if (!loginVisible && appPatterns.some(re => re.test(page.url()))) break;
-      if (!toldLogin) { step(`waiting up to ${Math.round(T.loginMs / 60000)} min for you to log in in the browser window...`); toldLogin = true; }
+      if (opts.headless) {
+        // SSO redirects show the login page briefly even with a valid session, so require it to persist
+        loginSince = loginVisible ? (loginSince || Date.now()) : 0;
+        if ((loginSince && Date.now() - loginSince > (T.headlessLoginMs || 15000)) || Date.now() - loginStart > (T.headlessAppMs || 60000)) {
+          throw new XmError('LOGIN_NEEDED', 'Infor sign-in needed: the headless run stopped at the login page. Rerun without --headless and sign in.');
+        }
+      } else if (!toldLogin) { step(`waiting up to ${Math.round(T.loginMs / 60000)} min for you to log in in the browser window...`); toldLogin = true; }
       if (Date.now() > loginDeadline) throw new XmError('LOGIN', 'Timed out waiting for login.');
       await sleep(T.pollMs);
     }
@@ -580,8 +589,8 @@ async function run(argv, hooks = {}) {
     log.result = 'error';
     log.error = { code: e.code || 'ERROR', message: e.message };
     console.error(`[xm] ${e.code ? e.code + ': ' : ''}${e.message}`);
-    if (page && !['EXISTS', 'NAV'].includes(e.code)) await shot('error');
-    const exitCode = { UNKNOWN_DAYS: EXIT.UNKNOWN_DAYS, EXISTS: EXIT.EXISTS, NAV: EXIT.NAV }[e.code] ?? EXIT.ERROR;
+    if (page && !['EXISTS', 'NAV', 'LOGIN_NEEDED'].includes(e.code)) await shot('error');
+    const exitCode = { UNKNOWN_DAYS: EXIT.UNKNOWN_DAYS, EXISTS: EXIT.EXISTS, NAV: EXIT.NAV, LOGIN_NEEDED: EXIT.LOGIN_NEEDED }[e.code] ?? EXIT.ERROR;
     return { exitCode, log };
   } finally {
     if (context) {
