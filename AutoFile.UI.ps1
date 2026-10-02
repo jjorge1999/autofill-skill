@@ -3,7 +3,8 @@
 
 function Show-DayQuestion {
     # One row per date with WFH / Office / Leave. Returns @{date = 'wfh'|'office'|'leave'} for answered rows.
-    param([Parameter(Mandatory = $true)][string[]]$Dates)
+    # Closes by itself after -TimeoutMinutes as "Ask me later" (no answers), so an unattended run never blocks.
+    param([Parameter(Mandatory = $true)][string[]]$Dates, [double]$TimeoutMinutes = 15)
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
     $inv = [Globalization.CultureInfo]::InvariantCulture
     $form = New-Object System.Windows.Forms.Form
@@ -25,7 +26,10 @@ function Show-DayQuestion {
     $intro = New-Object System.Windows.Forms.Label
     $intro.AutoSize = $true
     $intro.MaximumSize = New-Object System.Drawing.Size(420, 0)
-    $intro.Text = "No network reading for these workdays, so HCM was not filed. Pick one per day. Unanswered days are asked again next time."
+    $mins = [Math]::Max(1, [int][Math]::Ceiling($TimeoutMinutes))
+    $intro.Text = "No network reading for these workdays, so HCM was not filed. Pick one per day. Unanswered days are asked again next time.`r`n`r`n" +
+        "Leave: XM counts the day as 8 h leave, but nothing is filed in HCM - file the leave in HCM yourself.`r`n`r`n" +
+        "This window closes by itself after $mins minute$(if ($mins -ne 1) { 's' }) (same as 'Ask me later')."
     $stack.Controls.Add($intro)
 
     $radios = @()
@@ -63,8 +67,21 @@ function Show-DayQuestion {
     $form.AcceptButton = $save
     $form.CancelButton = $later
 
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = [int][Math]::Max(1000, [Math]::Min([int]::MaxValue, $TimeoutMinutes * 60000))
+    $timer.Tag = $form
+    $timer.add_Tick({
+            param($sender, $e)
+            $sender.Stop()
+            $sender.Tag.DialogResult = [System.Windows.Forms.DialogResult]::Cancel   # closes the modal form
+        })
+
     $answers = @{}
-    if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+    $timer.Start()   # ticks once ShowDialog runs the message loop
+    $result = $form.ShowDialog()
+    $timer.Stop()
+    $timer.Dispose()
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
         foreach ($rb in $radios) {
             if ($rb.Checked) { $parts = ([string]$rb.Tag).Split('|'); $answers[$parts[0]] = $parts[1] }
         }
