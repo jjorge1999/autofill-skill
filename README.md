@@ -1,5 +1,7 @@
 # InforAutofill – Part 1: office / WFH detection
 
+> New here? See [GETTING-STARTED.md](GETTING-STARTED.md) for the full end-to-end setup walkthrough.
+
 Records whether your PC is on the office network several times each workday. Part 2 will use this log to file entries automatically.
 
 Detection uses only local network identity: the Wi-Fi SSID, the default gateway's MAC address, and DNS suffixes on wired adapters. It does **not** use your public IP, because a corporate VPN would make home look like the office.
