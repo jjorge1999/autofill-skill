@@ -22,7 +22,7 @@ function check(name, fn) {
   try { fn(); console.log(`  PASS ${name}`); } catch (e) { failures++; console.log(`  FAIL ${name}\n       ${e.message}`); }
 }
 
-function writeConfig(name) {
+function writeConfig(name, extra = {}) {
   const p = path.join(tmp, `${name}.config.json`);
   fs.writeFileSync(p, JSON.stringify({
     urls: { app: MOCK_URL, portal: null, appUrlPatterns: ['^file:'] },
@@ -33,12 +33,13 @@ function writeConfig(name) {
     planLabels: { 248: 'Telecommuting', 300: 'Sick Leave' },
     paths: { logDir: path.join(tmp, `${name}-logs`), screenshotDir: path.join(tmp, `${name}-shots`) },
     timeouts: { calendarMs: 15000, loginMs: 15000, monthSettleMs: 800 },
+    ...extra,
   }));
   return p;
 }
 
-function run(name, extraArgs, summary, overrides) {
-  const cfg = writeConfig(name);
+function run(name, extraArgs, summary, overrides, cfgExtra) {
+  const cfg = writeConfig(name, cfgExtra);
   const sumPath = path.join(tmp, `${name}.summary.json`);
   // UTF-8 BOM + mixed-case keys, as PowerShell may produce
   fs.writeFileSync(sumPath, '\uFEFF' + JSON.stringify(summary));
@@ -166,6 +167,37 @@ async function savedRequests(profile) {
   check('already-filed date is skipped on re-run', () => {
     assert.strictEqual(r4.byDate['2026-09-02'].result, 'skipped-existing');
     assert.strictEqual(reqs4.length, reqs1.length);
+  });
+
+  // ---------------------------------------------------------------- leave export
+  console.log('\nScenario 5: leave export');
+  const leavePath = path.join(tmp, 'leave.json');
+  const r5 = run('leave', ['--from', '2026-08-31', '--to', '2026-09-15', '--leave-out', leavePath], []);
+  check('leave export lists vacation, sick and holidays only', () => {
+    assert.strictEqual(r5.code, 0);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(leavePath, 'utf8')),
+      { '2026-08-31': 'holiday', '2026-09-10': 'vacation', '2026-09-15': 'sick' });
+  });
+
+  // ---------------------------------------------------------------- headless sign-in needed
+  console.log('\nScenario 6: headless run on the login page');
+  const t6 = Date.now();
+  const r6 = run('login', [], [{ date: '2026-09-29', status: 'wfh' }], {}, {
+    urls: { app: MOCK_URL, portal: null, appUrlPatterns: ['^https://never\\.example/'] },
+    timeouts: { calendarMs: 15000, loginMs: 15000, monthSettleMs: 800, headlessLoginMs: 2000 },
+  });
+  check('exit 5 quickly when sign-in is needed', () => {
+    assert.strictEqual(r6.code, 5);
+    assert.match(r6.byDate['2026-09-29'].detail, /sign-in needed/);
+    assert.ok(Date.now() - t6 < 12000, `took ${Date.now() - t6} ms`);
+  });
+
+  // ---------------------------------------------------------------- 'leave' override is never filed
+  console.log('\nScenario 7: leave override');
+  const r7 = run('leaveov', [], [{ date: '2026-09-16', status: 'unknown' }], { '2026-09-16': 'leave' });
+  check("'leave' override is skipped, not filed", () => {
+    assert.strictEqual(r7.byDate['2026-09-16'].result, 'skipped-override');
+    assert.strictEqual(r7.code, 0);
   });
 
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');

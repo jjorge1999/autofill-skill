@@ -15,7 +15,9 @@ const path = require('path');
 const HERE = __dirname;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
-const NO_FILE_OVERRIDES = ['office', 'skip', 'none', 'ignore'];
+const NO_FILE_OVERRIDES = ['office', 'skip', 'none', 'ignore', 'leave'];
+const LOGIN_NEEDED = 'login-needed';
+const EXIT_LOGIN_NEEDED = 5;
 
 // ---------------------------------------------------------------- utilities
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -50,6 +52,7 @@ function usage() {
   --mode draft|submit  draft = "Save as draft and submit later" (default); submit = "Submit request for approval"
   --dry-run            fill the dialog, screenshot it, then Cancel
   --allow-future       allow filing dates after today
+  --leave-out <path>   also write HCM leave/holiday entries for --from..--to as {"yyyy-mm-dd":"vacation"|"sick"|"leave"|"holiday"}
   --headless           run the browser hidden (login must already be cached)
   --config <path>      config file merged over hcm.config.json`);
 }
@@ -64,6 +67,7 @@ function parseArgs(argv) {
       case '--overrides': a.overrides = val(); break;
       case '--from': a.from = val(); break;
       case '--to': a.to = val(); break;
+      case '--leave-out': a.leaveOut = val(); break;
       case '--mode': a.mode = val().toLowerCase(); break;
       case '--dry-run': a.dryRun = true; break;
       case '--headless': a.headless = true; break;
@@ -78,6 +82,7 @@ function parseArgs(argv) {
   for (const k of ['from', 'to', 'today']) {
     if (a[k] && !/^\d{4}-\d{2}-\d{2}$/.test(a[k])) throw new Error(`--${k} must be yyyy-mm-dd`);
   }
+  if (a.leaveOut && (!a.from || !a.to)) throw new Error('--leave-out needs --from and --to');
   return a;
 }
 
@@ -330,7 +335,40 @@ function classifyCell(cell, sel) {
   return { kind: 'empty', text };
 }
 
+/** Leave type of an existing calendar entry's text, or null (Telecommuting, Official Business, rejected, ...). */
+function leaveKind(text, sel) {
+  if (!text || /rejected/i.test(text)) return null;
+  if (!new RegExp(sel.leaveTextRegex || 'Vacation|Sick|Leave|Holiday', 'i').test(text)) return null;
+  if (/sick/i.test(text)) return 'sick';
+  if (/vacation/i.test(text)) return 'vacation';
+  if (/holiday/i.test(text)) return 'holiday';
+  return 'leave';
+}
+
+/** {date: kind} for every leave/holiday cell between from and to (yyyy-mm-dd, inclusive). */
+async function exportLeave(frame, cfg, from, to) {
+  const out = {};
+  const f = parseYmd(from);
+  const t = parseYmd(to);
+  for (let y = f.y, m = f.m; y < t.y || (y === t.y && m <= t.m); m === 12 ? (y++, m = 1) : m++) {
+    await gotoMonth(frame, cfg, y, m);
+    for (const c of await stableCells(frame, cfg)) {
+      if (c.other) continue;
+      const date = c.key ? `${c.key.slice(0, 4)}-${c.key.slice(4, 6)}-${c.key.slice(6, 8)}` : `${y}-${pad(m)}-${pad(c.day)}`;
+      if (date < from || date > to) continue;
+      const cls = classifyCell(c, cfg.selectors);
+      const kind = cls.kind === 'holiday' ? 'holiday' : cls.kind === 'existing' ? leaveKind(cls.text, cfg.selectors) : null;
+      if (kind) out[date] = kind;
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- page / login
+function appUrlMatches(page, cfg) {
+  return (cfg.urls.appUrlPatterns || []).some((p) => new RegExp(p, 'i').test(page.url()));
+}
+
 async function looksLikeLogin(page, cfg) {
   const url = page.url();
   const onApp = (cfg.urls.appUrlPatterns || []).some((p) => new RegExp(p, 'i').test(url));
@@ -343,31 +381,44 @@ async function looksLikeLogin(page, cfg) {
   return false;
 }
 
-async function waitForCalendar(page, cfg) {
+async function waitForCalendar(page, cfg, headless) {
   const start = Date.now();
   let deadline = start + cfg.timeouts.calendarMs;
+  // a headless run must live long enough to see the login page persist
+  if (headless) deadline = Math.max(deadline, start + (cfg.timeouts.headlessLoginMs || 15000) + 2000);
   let told = false;
+  let loginSince = 0;
   while (Date.now() < deadline) {
-    for (const f of page.frames()) {
-      if (await isCalendar(f, cfg.selectors).catch(() => false)) return f;
+    const onLogin = await looksLikeLogin(page, cfg).catch(() => false);
+    // headless: a page outside the app URL patterns is a sign-in page even if it happens to contain calendar-like cells
+    if (!(headless && onLogin && !appUrlMatches(page, cfg))) {
+      for (const f of page.frames()) {
+        if (await isCalendar(f, cfg.selectors).catch(() => false)) return f;
+      }
     }
-    if (await looksLikeLogin(page, cfg).catch(() => false)) {
-      if (!told) {
+    if (onLogin) {
+      // SSO redirects pass through the login page briefly even with a valid session, so require it to persist
+      loginSince = loginSince || Date.now();
+      if (headless && Date.now() - loginSince > (cfg.timeouts.headlessLoginMs || 15000)) return LOGIN_NEEDED;
+      if (!told && !headless) {
         log('Please log in in the opened browser window (waiting up to 5 minutes)...');
         told = true;
         deadline = Math.max(deadline, Date.now() + cfg.timeouts.loginMs);
       }
-    } else if (told) {
-      // login finished: give the app the normal amount of time to load from here
-      deadline = Math.min(deadline, Date.now() + cfg.timeouts.calendarMs);
-      told = false;
+    } else {
+      loginSince = 0;
+      if (told) {
+        // login finished: give the app the normal amount of time to load from here
+        deadline = Math.min(deadline, Date.now() + cfg.timeouts.calendarMs);
+        told = false;
+      }
     }
     await sleep(1000);
   }
   return null;
 }
 
-async function openCalendar(page, cfg) {
+async function openCalendar(page, cfg, headless) {
   for (const [name, url] of [['app', cfg.urls.app], ['portal', cfg.urls.portal]]) {
     if (!url) continue;
     log(`Opening HCM calendar (${name} URL)...`);
@@ -376,7 +427,8 @@ async function openCalendar(page, cfg) {
     } catch (e) {
       log(`  navigation warning: ${e.message.split('\n')[0]}`);
     }
-    const frame = await waitForCalendar(page, cfg);
+    const frame = await waitForCalendar(page, cfg, headless);
+    if (frame === LOGIN_NEEDED) return LOGIN_NEEDED;
     if (frame) return frame;
     log(`  calendar not found via ${name} URL.`);
   }
@@ -659,15 +711,25 @@ async function main() {
     results,
   };
 
+  let loginNeeded = false;
   let context = null;
   try {
-    if (jobs.length) {
+    if (jobs.length || args.leaveOut) {
       context = await launch(cfg, args.headless);
       const page = context.pages()[0] || (await context.newPage());
-      const frame = await openCalendar(page, cfg);
-      if (!frame) {
+      const frame = await openCalendar(page, cfg, args.headless);
+      if (frame === LOGIN_NEEDED) {
+        loginNeeded = true;
+        for (const j of jobs) { j.result = 'error'; j.detail = 'Infor sign-in needed (headless run stopped at the login page)'; }
+      } else if (!frame) {
         for (const j of jobs) { j.result = 'error'; j.detail = 'HCM calendar could not be opened (login timeout or page changed)'; }
       } else {
+        if (args.leaveOut) {
+          const leave = await exportLeave(frame, cfg, args.from, args.to);
+          fs.writeFileSync(path.resolve(args.leaveOut), JSON.stringify(leave, null, 2));
+          runLog.leave = leave;
+          log(`Leave ${args.from}..${args.to}: ${Object.keys(leave).length ? Object.entries(leave).map(([d, k]) => `${d}=${k}`).join(', ') : 'none'}`);
+        }
         const state = { strategy: null };
         for (const job of jobs) {
           try {
@@ -712,6 +774,7 @@ async function main() {
     if (unknown.length) log(`\nunknown days need your input: ${unknown.join(', ')}\n  (add them to hcm/overrides.json, e.g. {"${unknown[0]}":"vacation"})`);
     log(`Run log: ${logFile}`);
   }
+  if (loginNeeded) return EXIT_LOGIN_NEEDED;
   return results.some((r) => r.result === 'error') ? 1 : 0;
 }
 

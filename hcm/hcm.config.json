@@ -32,7 +32,8 @@
     "dialogOpenMs": 4000,
     "planConfirmMs": 15000,
     "afterOkMs": 20000,
-    "monthSettleMs": 1500
+    "monthSettleMs": 1500,
+    "headlessLoginMs": 15000
   },
   "openStrategies": ["click", "dblclick", "button"],
   "clickPosition": { "x": 0.5, "y": 0.75 },
@@ -81,6 +82,7 @@
     "cancelButton": [{ "role": "button", "name": "Cancel", "exact": true }, { "css": "button:has-text('Cancel')" }],
     "dialogError": ".error-message, .message-error, [role='alert'], .field-error, .error-text",
     "postSubmitMessage": "[role='alertdialog'], [role='dialog'], .toast-message",
+    "leaveTextRegex": "Vacation|Sick|Leave|Holiday",
     "loginForm": "input[type='password'], input[name='loginfmt'], #i0116"
   }
 }
