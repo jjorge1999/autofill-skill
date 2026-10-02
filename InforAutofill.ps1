@@ -248,8 +248,10 @@ function New-DayChip($day) {
         $mi.Add_Click({
             param($sender, $e)
             $parts = ([string]$sender.Tag).Split('|')
-            try { Set-DayOverride -Path $overridesPath -Date $parts[0] -Value $parts[1] } catch { $ui.Hint.Text = "Could not save: $($_.Exception.Message)" }
-            Update-View
+            $saveError = $null
+            try { Set-DayOverride -Path $overridesPath -Date $parts[0] -Value $parts[1] } catch { $saveError = $_.Exception.Message }
+            Invoke-Safe { Update-View }
+            if ($saveError) { $ui.Hint.Text = "Could not save: $saveError" }
         })
         [void]$menu.Items.Add($mi)
     }
@@ -275,17 +277,33 @@ function Update-View {
     $ui.XmLine.Text = "XM  $($m.Xm.Text)"
     $ui.Hint.Text = 'Click a day to mark it WFH, Office or Leave. An office reading always wins over WFH; file leave in HCM yourself.'
 
-    $task = Get-FileTask
-    if ($task) {
-        $info = $task | Get-ScheduledTaskInfo
-        $ui.ScheduleBtn.Content = 'On'
-        $ui.ScheduleBtn.Foreground = Get-Brush $theme.Accent
-        $ui.NextRun.Text = 'Next run  ' + $info.NextRunTime.ToString('ddd d MMM, HH:mm', $inv)
-    } else {
-        $ui.ScheduleBtn.Content = 'Off'
-        $ui.ScheduleBtn.Foreground = Get-Brush $theme.Muted
-        $ui.NextRun.Text = 'Automatic filing is off'
+    try {
+        $task = Get-FileTask
+        if ($task) {
+            $ui.ScheduleBtn.Content = 'On'
+            $ui.ScheduleBtn.Foreground = Get-Brush $theme.Accent
+            $next = $null
+            try { $next = ($task | Get-ScheduledTaskInfo -ErrorAction Stop).NextRunTime } catch { $next = $null }
+            if ($next) { $ui.NextRun.Text = 'Next run  ' + $next.ToString('ddd d MMM, HH:mm', $inv) }
+            else { $ui.NextRun.Text = 'Next run  -' }
+        } else {
+            $ui.ScheduleBtn.Content = 'Off'
+            $ui.ScheduleBtn.Foreground = Get-Brush $theme.Muted
+            $ui.NextRun.Text = 'Automatic filing is off'
+        }
+    } catch {
+        $ui.NextRun.Text = "Schedule unknown: $($_.Exception.Message)"
     }
+}
+
+# Event handlers must never take the window down: report the error quietly instead.
+function Invoke-Safe([scriptblock]$Body) {
+    try { & $Body } catch { $ui.Hint.Text = "Something went wrong: $($_.Exception.Message)" }
+}
+
+function ConvertTo-Quoted([string]$Path) {
+    # Single-quoted literal for a -Command string.
+    return "'" + $Path.Replace("'", "''") + "'"
 }
 
 # ---- child processes (never Start-Process -WindowStyle Hidden: it can close the question dialog)
@@ -309,7 +327,7 @@ function Read-SharedText([string]$Path) {
 $script:Run = $null
 $runTimer = New-Object System.Windows.Threading.DispatcherTimer
 $runTimer.Interval = [TimeSpan]::FromMilliseconds(500)
-$runTimer.Add_Tick({
+$runTimer.Add_Tick({ Invoke-Safe {
     if (-not $script:Run) { $runTimer.Stop(); return }
     $text = Read-SharedText $script:Run.Out
     if ($text) { $ui.LogBox.Text = $text; $ui.LogBox.ScrollToEnd() }
@@ -322,43 +340,52 @@ $runTimer.Add_Tick({
         $ui.PreviewBtn.IsEnabled = $true; $ui.FileBtn.IsEnabled = $true; $ui.ScheduleBtn.IsEnabled = $true
         Update-View
     }
-})
+} })
 
 function Start-AutoFile([switch]$Preview) {
     if ($script:Run) { return }
     $out = Join-Path ([IO.Path]::GetTempPath()) ("inforautofill-ui-{0}.log" -f [guid]::NewGuid())
     $flag = ''
     if ($Preview) { $flag = ' -WhatIf' }
-    $cmd = "& '{0}'{1} *> '{2}'" -f (Join-Path $here 'Invoke-AutoFile.ps1'), $flag, $out
+    $cmd = "& {0}{1} *> {2}" -f (ConvertTo-Quoted (Join-Path $here 'Invoke-AutoFile.ps1')), $flag, (ConvertTo-Quoted $out)
     $ui.PreviewBtn.IsEnabled = $false; $ui.FileBtn.IsEnabled = $false; $ui.ScheduleBtn.IsEnabled = $false
     $ui.LogExpander.IsExpanded = $true
     $ui.LogBox.Text = $(if ($Preview) { 'Preview running...' } else { 'Filing running... (Edge may open if Infor needs you to sign in)' })
-    $script:Run = @{ Proc = (Start-Child $cmd); Out = $out }
+    try { $proc = Start-Child $cmd }
+    catch {
+        $ui.PreviewBtn.IsEnabled = $true; $ui.FileBtn.IsEnabled = $true; $ui.ScheduleBtn.IsEnabled = $true
+        $ui.LogBox.Text = "Could not start the run: $($_.Exception.Message)"
+        return
+    }
+    $script:Run = @{ Proc = $proc; Out = $out }
     $runTimer.Start()
 }
 
 function Invoke-Scheduler([switch]$Uninstall) {
     $flag = ''
     if ($Uninstall) { $flag = ' -Uninstall' }
-    $p = Start-Child ("& '{0}'{1}" -f (Join-Path $here 'Install-Scheduler.ps1'), $flag)
-    [void]$p.WaitForExit(60000)
+    $p = Start-Child ("& {0}{1}" -f (ConvertTo-Quoted (Join-Path $here 'Install-Scheduler.ps1')), $flag)
+    if (-not $p.WaitForExit(60000)) { throw 'Install-Scheduler.ps1 did not finish within 60 s.' }
+    if ($p.ExitCode -ne 0) { throw "Install-Scheduler.ps1 failed (exit $($p.ExitCode)). Run it in a PowerShell window to see why." }
 }
 
-$ui.PreviewBtn.Add_Click({ Start-AutoFile -Preview })
-$ui.FileBtn.Add_Click({
+$ui.PreviewBtn.Add_Click({ Invoke-Safe { Start-AutoFile -Preview } })
+$ui.FileBtn.Add_Click({ Invoke-Safe {
     $r = [System.Windows.MessageBox]::Show($win, 'Run the filing now? It submits WFH days to HCM and, when due, the XM timesheet - the same as the scheduled run.', 'InforAutofill', 'OKCancel', 'Question')
     if ($r -eq 'OK') { Start-AutoFile }
-})
-$ui.ScheduleBtn.Add_Click({
+} })
+$ui.ScheduleBtn.Add_Click({ Invoke-Safe {
     $on = [bool](Get-FileTask)
     $msg = $(if ($on) { 'Turn automatic filing off? This removes both scheduled tasks (presence checks and filing).' } else { 'Turn automatic filing on? This registers the presence checks and the filing task for your user.' })
     $r = [System.Windows.MessageBox]::Show($win, $msg, 'InforAutofill', 'OKCancel', 'Question')
     if ($r -ne 'OK') { return }
     $win.Cursor = 'Wait'
-    try { if ($on) { Invoke-Scheduler -Uninstall } else { Invoke-Scheduler } } finally { $win.Cursor = $null }
+    $schedError = $null
+    try { if ($on) { Invoke-Scheduler -Uninstall } else { Invoke-Scheduler } } catch { $schedError = $_.Exception.Message } finally { $win.Cursor = $null }
     Update-View
-})
-$ui.SettingsBtn.Add_Click({
+    if ($schedError) { $ui.Hint.Text = $schedError }
+} })
+$ui.SettingsBtn.Add_Click({ Invoke-Safe {
     $sw = New-WpfWindow $settingsXaml
     $sw.Owner = $win
     $tb = $sw.FindName('TimeBox')
@@ -375,14 +402,14 @@ $ui.SettingsBtn.Add_Click({
             Update-View
         } catch { $err.Text = $_.Exception.Message }
     })
-    $sw.FindName('LogsBtn').Add_Click({ Start-Process explorer.exe -ArgumentList "`"$(Get-DataDir)`"" })
-    $sw.FindName('ReadmeBtn').Add_Click({ Start-Process notepad.exe -ArgumentList "`"$readmePath`"" })
+    $sw.FindName('LogsBtn').Add_Click({ try { Start-Process explorer.exe -ArgumentList "`"$(Get-DataDir)`"" } catch { $err.Text = $_.Exception.Message } })
+    $sw.FindName('ReadmeBtn').Add_Click({ try { Start-Process notepad.exe -ArgumentList "`"$readmePath`"" } catch { $err.Text = $_.Exception.Message } })
     [void]$sw.ShowDialog()
-})
+} })
 
 $refreshTimer = New-Object System.Windows.Threading.DispatcherTimer
 $refreshTimer.Interval = [TimeSpan]::FromSeconds(60)
-$refreshTimer.Add_Tick({ if (-not $script:Run) { Update-View } })
+$refreshTimer.Add_Tick({ Invoke-Safe { if (-not $script:Run) { Update-View } } })
 
 Update-View
 if ($SelfTest) {
