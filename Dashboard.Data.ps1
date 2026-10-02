@@ -52,6 +52,7 @@ function Get-XmWeekStatus {
     foreach ($l in $Logs) {
         if (-not $l -or -not $l.week -or [string]$l.week.start -ne $WeekStart) { continue }
         if ($l.options -and $l.options.dryRun) { continue }
+        if ('dry-run', 'help' -contains [string]$l.result) { continue }
         $last = $l
     }
     $text = 'not filed yet'
@@ -77,7 +78,9 @@ function Get-LastReadingTime {
     param([Parameter(Mandatory = $true)][string]$PresencePath, [Parameter(Mandatory = $true)][datetime]$Date)
     if (-not (Test-Path -LiteralPath $PresencePath)) { return $null }
     $iso = ConvertTo-IsoDate $Date
-    $rows = @(Import-Csv -LiteralPath $PresencePath | Where-Object { $_.date -eq $iso -and $_.timestamp })
+    # The presence task may be writing the file; an unreadable log means "no data yet".
+    try { $rows = @(Import-Csv -LiteralPath $PresencePath -ErrorAction Stop | Where-Object { $_.date -eq $iso -and $_.timestamp }) }
+    catch { return $null }
     if (-not $rows.Count) { return $null }
     $ts = [string](($rows | Sort-Object timestamp | Select-Object -Last 1).timestamp)
     if ($ts.Length -lt 16) { return $null }
