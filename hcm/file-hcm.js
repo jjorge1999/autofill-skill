@@ -53,7 +53,8 @@ function usage() {
   --dry-run            fill the dialog, screenshot it, then Cancel
   --allow-future       allow filing dates after today
   --leave-out <path>   also write HCM leave/holiday entries for --from..--to as {"yyyy-mm-dd":"vacation"|"sick"|"leave"|"holiday"}
-  --headless           run the browser hidden (login must already be cached)
+                       (entries that are neither Telecommuting nor leave are printed as "UNRECOGNISED <date>: <text>")
+  --headless          run the browser hidden (login must already be cached)
   --config <path>      config file merged over hcm.config.json`);
 }
 
@@ -264,6 +265,18 @@ async function readCells(frame, sel) {
       const cr = c.getBoundingClientRect();
       const overlayHits = overlays.filter((o) => overlaps(o.r, cr));
       for (const o of overlayHits) if (o.text) parts.push(o.text);
+      // one text per calendar entry (outermost event element only, so nested matches are not doubled)
+      const entries = [];
+      if (s.eventSelector) {
+        for (const e of c.querySelectorAll(s.eventSelector)) {
+          if (!visible(e)) continue;
+          const outer = e.parentElement && e.parentElement.closest(s.eventSelector);
+          if (outer && c.contains(outer)) continue;
+          const t = (e.textContent || '').replace(/\s+/g, ' ').trim();
+          if (t) entries.push(t);
+        }
+      }
+      for (const o of overlayHits) if (o.text) entries.push(o.text);
       const key = (c.getAttribute('data-key') || c.getAttribute('data-date') || '').replace(/-/g, '').trim();
       return {
         idx,
@@ -271,6 +284,7 @@ async function readCells(frame, sel) {
         key: /^\d{8}$/.test(key) ? key : '',
         other: (otherRx ? otherRx.test(c.className || '') : false) || phase !== 1,
         text: parts.join(' ').trim(),
+        entries,
         hasEvent: s.eventSelector ? !!c.querySelector(s.eventSelector) : false,
         isHoliday: s.holidaySelector ? (c.matches(s.holidaySelector) || !!c.querySelector(s.holidaySelector)) : false,
       };
@@ -335,8 +349,8 @@ function classifyCell(cell, sel) {
   return { kind: 'empty', text };
 }
 
-/** Leave type of an existing calendar entry's text, or null (Telecommuting, Official Business, rejected, ...). */
-function leaveKind(text, sel) {
+/** Leave type of ONE calendar entry's text, or null (Telecommuting, Official Business, rejected, ...). */
+function leaveKind(text, sel = {}) {
   if (!text || /rejected/i.test(text)) return null;
   if (!new RegExp(sel.leaveTextRegex || 'Vacation|Sick|Leave|Holiday', 'i').test(text)) return null;
   if (/sick/i.test(text)) return 'sick';
@@ -345,9 +359,50 @@ function leaveKind(text, sel) {
   return 'leave';
 }
 
-/** {date: kind} for every leave/holiday cell between from and to (yyyy-mm-dd, inclusive). */
+// "<Plan>: Full Day|Half Day|<n> Hours" with an optional "(Status)" after it
+const ENTRY_RX = /[A-Z][A-Za-z'&/ -]*?:\s*(?:Full Day|Half Day|\d[\d.]*(?:\s*(?:Hours?|Hrs?)\b)?)(?:\s*\([^)]*\))?/g;
+const STATUS_ONLY_RX = /^[\s()]*(?:(?:Rejected|Pending|Approved|Draft|Submitted)[\s()]*)+$/i;
+
+/** Splits a cell's concatenated text into entries (fallback when the entries are not separate elements). */
+function splitEntries(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return [];
+  const found = (t.match(ENTRY_RX) || []).map((x) => x.trim());
+  if (!found.length) return [t];
+  let rest = t;
+  for (const x of found) rest = rest.replace(x, ' ');
+  rest = rest.replace(/\s+/g, ' ').trim();
+  return rest ? [...found, rest] : found;
+}
+
+/**
+ * Judges a cell's entries one by one: { kind: leave kind or null, unrecognised: [entry text] }.
+ * Rejected entries and Telecommuting are recognised and ignored; a rejected entry never hides another entry.
+ * A bare "Rejected" that cannot be tied to one entry makes the cell unrecognised (never guessed).
+ */
+function judgeEntries(entries, sel = {}) {
+  let kind = null;
+  const unrecognised = [];
+  const statusOnly = entries.filter((e) => STATUS_ONLY_RX.test(e));
+  const real = entries.filter((e) => !STATUS_ONLY_RX.test(e));
+  if (statusOnly.some((e) => /rejected/i.test(e)) && real.length) return { kind: null, unrecognised: [entries.join(' ')] };
+  for (const e of real) {
+    if (/rejected/i.test(e) || /telecommut/i.test(e)) continue;
+    const k = leaveKind(e, sel);
+    if (k) { kind = kind || k; continue; }
+    unrecognised.push(e);
+  }
+  return { kind, unrecognised };
+}
+
+/**
+ * Leave/holiday cells between from and to (yyyy-mm-dd, inclusive):
+ * { leave: {date: kind}, unrecognised: [{date, text}] } - unrecognised = entries that are neither Telecommuting nor leave.
+ */
 async function exportLeave(frame, cfg, from, to) {
   const out = {};
+  const unrecognised = [];
+  const sel = cfg.selectors;
   const f = parseYmd(from);
   const t = parseYmd(to);
   for (let y = f.y, m = f.m; y < t.y || (y === t.y && m <= t.m); m === 12 ? (y++, m = 1) : m++) {
@@ -356,12 +411,18 @@ async function exportLeave(frame, cfg, from, to) {
       if (c.other) continue;
       const date = c.key ? `${c.key.slice(0, 4)}-${c.key.slice(4, 6)}-${c.key.slice(6, 8)}` : `${y}-${pad(m)}-${pad(c.day)}`;
       if (date < from || date > to) continue;
-      const cls = classifyCell(c, cfg.selectors);
-      const kind = cls.kind === 'holiday' ? 'holiday' : cls.kind === 'existing' ? leaveKind(cls.text, cfg.selectors) : null;
-      if (kind) out[date] = kind;
+      const cls = classifyCell(c, sel);
+      if (cls.kind === 'holiday') { out[date] = 'holiday'; continue; }
+      if (cls.kind !== 'existing') continue;
+      const ignore = sel.cellTextIgnoreRegex ? new RegExp(sel.cellTextIgnoreRegex, 'gi') : null;
+      let entries = (c.entries || []).map((e) => (ignore ? e.replace(ignore, '') : e).trim()).filter(Boolean);
+      if (!entries.length) entries = splitEntries(cls.text);
+      const j = judgeEntries(entries, sel);
+      if (j.kind) out[date] = j.kind;
+      for (const text of j.unrecognised) unrecognised.push({ date, text });
     }
   }
-  return out;
+  return { leave: out, unrecognised };
 }
 
 // ---------------------------------------------------------------- page / login
@@ -661,6 +722,13 @@ function planJobs(summary, overrides, cfg, args, today) {
     let planKey = null;
     if (e.override) {
       if (NO_FILE_OVERRIDES.includes(e.override)) { r.result = 'skipped-override'; continue; }
+      if (e.status === 'office') {
+        // the presence log saw the office network that day: office (or mixed) days are never filed
+        r.result = 'skipped-office-reading';
+        r.detail = `presence log shows an office reading; override "${e.override}" ignored`;
+        log(`WARNING ${e.date}: office reading in the presence log; override "${e.override}" ignored, not filed (skipped-office-reading)`);
+        continue;
+      }
       planKey = e.override;
     } else if (e.status === 'wfh') planKey = 'wfh';
     else if (e.status === 'office') { r.result = 'skipped-office'; continue; }
@@ -727,10 +795,13 @@ async function main() {
         for (const j of jobs) { j.result = 'error'; j.detail = 'HCM calendar could not be opened (login timeout or page changed)'; }
       } else {
         if (args.leaveOut) {
-          const leave = await exportLeave(frame, cfg, args.from, args.to);
+          const { leave, unrecognised } = await exportLeave(frame, cfg, args.from, args.to);
           fs.writeFileSync(path.resolve(args.leaveOut), JSON.stringify(leave, null, 2));
           runLog.leave = leave;
+          runLog.unrecognised = unrecognised;
           log(`Leave ${args.from}..${args.to}: ${Object.keys(leave).length ? Object.entries(leave).map(([d, k]) => `${d}=${k}`).join(', ') : 'none'}`);
+          // entries that are neither Telecommuting nor a recognised leave: the orchestrator asks the user to check them
+          for (const u of unrecognised) log(`UNRECOGNISED ${u.date}: ${u.text}`);
         }
         const state = { strategy: null };
         for (const job of jobs) {
@@ -785,4 +856,4 @@ if (require.main === module) {
   main().then((code) => { process.exitCode = code; }, (e) => { console.error(`ERROR: ${e.message}`); process.exitCode = 2; });
 }
 
-module.exports = { loadSummary, planJobs, toDmy, normDate };
+module.exports = { loadSummary, planJobs, toDmy, normDate, leaveKind, splitEntries, judgeEntries };

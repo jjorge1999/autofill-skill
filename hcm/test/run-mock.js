@@ -11,6 +11,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { pathToFileURL } = require('url');
 const { chromium } = require('playwright');
+const { leaveKind, splitEntries, judgeEntries } = require('../file-hcm.js');
 
 const HCM = path.resolve(__dirname, '..');
 const TODAY = '2026-10-01';
@@ -70,6 +71,32 @@ async function savedRequests(profile) {
 
 (async () => {
   console.log(`Mock: ${MOCK_URL}\nTemp: ${tmp}\n`);
+
+  // ---------------------------------------------------------------- pure helpers
+  console.log('Unit checks: leaveKind / splitEntries');
+  const SEL = JSON.parse(fs.readFileSync(path.join(HCM, 'hcm.config.json'), 'utf8')).selectors;
+  check('leaveKind classifies single entries', () => {
+    assert.strictEqual(leaveKind('Vacation: Full Day', SEL), 'vacation');
+    assert.strictEqual(leaveKind('Sick Leave: Full Day', SEL), 'sick');
+    assert.strictEqual(leaveKind('Unpaid Leave', SEL), 'leave');
+    assert.strictEqual(leaveKind('Telecommuting: Full Day', SEL), null);
+    assert.strictEqual(leaveKind('Vacation: Full Day (Rejected)', SEL), null);
+    assert.strictEqual(leaveKind('Vacation: Full Day'), 'vacation'); // selectors optional
+  });
+  check('splitEntries separates concatenated cell text', () => {
+    assert.deepStrictEqual(splitEntries('Vacation: Full Day (Rejected) Sick Leave: Full Day'),
+      ['Vacation: Full Day (Rejected)', 'Sick Leave: Full Day']);
+    assert.deepStrictEqual(splitEntries('Telecommuting: Full Day'), ['Telecommuting: Full Day']);
+    assert.deepStrictEqual(splitEntries('Unpaid Leave'), ['Unpaid Leave']);
+  });
+  check('judgeEntries: per entry, unrecognised and ambiguous cells reported', () => {
+    assert.deepStrictEqual(judgeEntries(['Vacation: Full Day (Rejected)', 'Sick Leave: Full Day'], SEL), { kind: 'sick', unrecognised: [] });
+    assert.deepStrictEqual(judgeEntries(['Telecommuting: Full Day'], SEL), { kind: null, unrecognised: [] });
+    assert.deepStrictEqual(judgeEntries(['Official Business: Full Day'], SEL), { kind: null, unrecognised: ['Official Business: Full Day'] });
+    // a bare "Rejected" that cannot be tied to one entry is never guessed
+    assert.deepStrictEqual(judgeEntries(splitEntries('Vacation: Full Day Rejected'), SEL),
+      { kind: null, unrecognised: ['Vacation: Full Day Rejected'] });
+  });
 
   // ---------------------------------------------------------------- draft run
   console.log('Scenario 1: draft mode');
@@ -210,6 +237,34 @@ async function savedRequests(profile) {
   check('exit 1 and no leave file when the calendar cannot be opened', () => {
     assert.strictEqual(r8.code, 1);
     assert.ok(!fs.existsSync(leave8));
+  });
+
+  // ---------------------------------------------------------------- office reading beats a filing override
+  console.log('\nScenario 9: office reading with a wfh/sick override');
+  const r9 = run('officeov', [], [{ date: '2026-09-22', status: 'office' }, { date: '2026-09-23', status: 'office' }],
+    { '2026-09-22': 'wfh', '2026-09-23': 'sick' });
+  const reqs9 = await savedRequests(r9.profile);
+  check('office reading is never filed, whatever the override', () => {
+    assert.strictEqual(r9.byDate['2026-09-22'].result, 'skipped-office-reading');
+    assert.strictEqual(r9.byDate['2026-09-23'].result, 'skipped-office-reading');
+    assert.strictEqual(reqs9.length, 0);
+    assert.match(r9.stdout, /WARNING 2026-09-22: .*override "wfh".*skipped-office-reading/);
+    assert.match(r9.stdout, /WARNING 2026-09-23: .*override "sick".*skipped-office-reading/);
+    assert.strictEqual(r9.code, 0);
+  });
+
+  // ---------------------------------------------------------------- leave export judged per entry
+  console.log('\nScenario 10: leave export, one entry at a time');
+  const leave10 = path.join(tmp, 'leave10.json');
+  const r10 = run('leaveentries', ['--from', '2026-09-16', '--to', '2026-09-22', '--leave-out', leave10], []);
+  check('a rejected entry does not hide a valid leave entry in the same cell', () => {
+    assert.strictEqual(r10.code, 0);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(leave10, 'utf8')), { '2026-09-17': 'sick' });
+  });
+  check('an unrecognised entry is reported, not exported', () => {
+    assert.match(r10.stdout, /^UNRECOGNISED 2026-09-21: Official Business: Full Day\r?$/m);
+    assert.deepStrictEqual(r10.log.unrecognised, [{ date: '2026-09-21', text: 'Official Business: Full Day' }]);
+    assert.ok(!/UNRECOGNISED 2026-09-17/.test(r10.stdout), 'rejected + sick cell must not be unrecognised');
   });
 
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');

@@ -99,6 +99,8 @@
     '2026-09-10': 'Vacation: Full Day',
     '2026-09-11': 'Vacation: Full Day (Rejected)',
     '2026-09-15': 'Sick Leave: Full Day',
+    '2026-09-17': ['Vacation: Full Day (Rejected)', 'Sick Leave: Full Day'],
+    '2026-09-21': 'Official Business: Full Day',
   };
   const HOLIDAYS = {
     '2026-08-31': "National Heroes Day",
@@ -115,7 +117,7 @@
   const saved = () => JSON.parse(localStorage.getItem('mock-hcm-requests') || '[]');
   function events(k) {
     const list = [];
-    if (FIXED_EVENTS[k]) list.push(FIXED_EVENTS[k]);
+    if (FIXED_EVENTS[k]) list.push(...[].concat(FIXED_EVENTS[k]));
     for (const r of saved()) if (r.fromIso === k) list.push(`${PLANS[r.plan] || r.plan}: Full Day${r.action === 'draft' ? ' (Draft)' : ''}`);
     return list;
   }
