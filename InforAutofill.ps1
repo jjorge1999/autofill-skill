@@ -347,7 +347,8 @@ function Start-AutoFile([switch]$Preview) {
     $out = Join-Path ([IO.Path]::GetTempPath()) ("inforautofill-ui-{0}.log" -f [guid]::NewGuid())
     $flag = ''
     if ($Preview) { $flag = ' -WhatIf' }
-    $cmd = "& {0}{1} *> {2}" -f (ConvertTo-Quoted (Join-Path $here 'Invoke-AutoFile.ps1')), $flag, (ConvertTo-Quoted $out)
+    # The catch puts errors thrown before the filer's own logging (e.g. a bad config.json) into the Log panel too.
+    $cmd = 'try {{ & {0}{1} *> {2} }} catch {{ $_ *>> {2}; exit 1 }}' -f (ConvertTo-Quoted (Join-Path $here 'Invoke-AutoFile.ps1')), $flag, (ConvertTo-Quoted $out)
     $ui.PreviewBtn.IsEnabled = $false; $ui.FileBtn.IsEnabled = $false; $ui.ScheduleBtn.IsEnabled = $false
     $ui.LogExpander.IsExpanded = $true
     $ui.LogBox.Text = $(if ($Preview) { 'Preview running...' } else { 'Filing running... (Edge may open if Infor needs you to sign in)' })
