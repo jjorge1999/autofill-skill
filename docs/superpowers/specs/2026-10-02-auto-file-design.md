@@ -42,15 +42,15 @@ One run:
 1. Log a fresh presence reading (`Detect-Presence.ps1`).
 2. Read state from `%LOCALAPPDATA%\InforAutofill\autofile-state.json`:
    `{ "hcmCoveredThrough": "yyyy-MM-dd", "xmWeeksDone": ["yyyy-MM-dd", ...] }`.
-3. HCM range = day after `hcmCoveredThrough` (at most 14 days back) through today.
+3. HCM range = day after `hcmCoveredThrough` (at most 14 days back) through the last complete day. A day may only be filed once its network readings are complete (whole-day detection): today counts only at or after `file_time` (config.json, default `16:30`); before that the range ends yesterday. An explicit `-Today` is treated as the end of that day.
 4. Run the HCM filer headless in submit mode for that range. The same run exports HCM leave entries (see 3).
 5. Ask about `unknown` workdays in the range that have no HCM leave entry (see 4). Answers go to `hcm/overrides.json`.
    If any answer is WFH, run the HCM filer again for just those dates.
 6. Advance `hcmCoveredThrough` to the last date that is no longer pending (filed, skipped by rule, or answered).
    Unanswered `unknown` days stay pending and are asked again next run.
-7. XM weeks due = the current Sun-Sat week if today is Friday or Saturday, plus any earlier week (at most 2 back)
+7. XM weeks due = the current Sun-Sat week once Friday is a complete day (Friday at or after `file_time`, or Saturday), plus any earlier week (at most 2 back)
    not in `xmWeeksDone`. Weeks before the first run of the task count as done. For each, run the XM filer headless with `--mode submit --assume-unknown-workday` and the leave file.
-   On exit 0, or exit 3 (timesheet already exists with hours), add the week to `xmWeeksDone`.
+   On exit 0, or exit 3 (timesheet already exists with hours), add the week to `xmWeeksDone`. On exit 3 the end-of-run notification (warning style) also says the week already has a timesheet, was not touched, and should be checked in XM; this does not make the run exit 1.
 8. Notify: one Windows notification summarising what was filed, or the failure reason and run-log path.
 
 Switches: `-WhatIf` (print the plan from the presence log, state and overrides; no browser, no changes),

@@ -71,22 +71,29 @@ if (-not $WhatIf) {
 
 $filed = @()
 $failed = @()
+$attention = @()
 try {
     Write-RunLog "=== run for $(ConvertTo-IsoDate $Today)$(if ($WhatIf) { ' (WhatIf)' })"
     if (-not $WhatIf) { & (Join-Path $here 'Detect-Presence.ps1') -ConfigPath $ConfigPath }
 
+    $fileTime = if ($config.file_time) { [string]$config.file_time } else { '16:30' }
+    $includeToday = (Get-Date) -ge $Today.Date.Add([timespan]::ParseExact($fileTime, 'hh\:mm', [Globalization.CultureInfo]::InvariantCulture))
+    if ($PSBoundParameters.ContainsKey('Today')) { $includeToday = $true }   # explicit -Today = end of that day
+    $lastDay = if ($includeToday) { $Today } else { $Today.AddDays(-1) }
+    Write-RunLog ("Today counted: {0}" -f $(if ($includeToday) { 'yes' } else { "no (before $fileTime)" }))
+
     $state = Read-AutoFileState -Path $statePath -Today $Today
     if ($Force) { $state.hcmCoveredThrough = ConvertTo-IsoDate $Today.AddDays(-15); $state.xmWeeksDone = @() }
-    $range = Get-HcmRange -State $state -Today $Today
+    $range = Get-HcmRange -State $state -Today $lastDay
     # Get-XmWeeksDue returns ,$due (keeps an empty list); wrapping the call in @() would nest it again
-    $xmWeeks = Get-XmWeeksDue -State $state -Today $Today
+    $xmWeeks = Get-XmWeeksDue -State $state -Today $lastDay
     $xmWeeks = @($xmWeeks)
     if (-not $range -and -not $xmWeeks.Count) { Write-RunLog 'Nothing due.'; return }
 
     # one HCM pass covers the HCM range and every due XM week (Mon-Fri) so the leave export serves both
-    $from = if ($range) { $range.From } else { $Today }
+    $from = if ($range) { $range.From } else { $lastDay }
     foreach ($w in $xmWeeks) { if ($w.AddDays(1) -lt $from) { $from = $w.AddDays(1) } }
-    $to = $Today
+    $to = $lastDay
     Write-RunLog ("HCM range {0}; XM weeks due: {1}" -f $(if ($range) { "$(ConvertTo-IsoDate $range.From)..$(ConvertTo-IsoDate $range.To)" } else { 'none' }),
         $(if ($xmWeeks.Count) { ($xmWeeks | ForEach-Object { ConvertTo-IsoDate $_ }) -join ', ' } else { 'none' }))
 
@@ -104,7 +111,7 @@ try {
     Remove-Item -LiteralPath $leavePath -ErrorAction SilentlyContinue
     $hcmArgs = @('-From', (ConvertTo-IsoDate $from), '-To', (ConvertTo-IsoDate $to), '--mode', 'submit', '--headless', '--leave-out', $leavePath)
     $hcmCode = Invoke-Filer -Name 'HCM' -Script $hcmScript -Arguments $hcmArgs
-    $filed += @($script:FilerOutput | Select-String '^\s+(\d{4}-\d{2}-\d{2}) \S+ \(\d+\): filed' | ForEach-Object { "HCM Telecommuting $($_.Matches[0].Groups[1].Value)" })
+    $filed += @($script:FilerOutput | Select-String '^\s+(\d{4}-\d{2}-\d{2}) \S+ \(\d+\): filed( |$)' | ForEach-Object { "HCM Telecommuting $($_.Matches[0].Groups[1].Value)" })
     $leaveKnown = Test-Path -LiteralPath $leavePath
     if ($hcmCode -ne 0) { $failed += "HCM (exit $hcmCode)" }
     $leave = if ($leaveKnown) { Read-JsonMap -Path $leavePath } else { @{} }
@@ -122,14 +129,14 @@ try {
                 $wfh = @($answers.Keys | Where-Object { $answers[$_] -eq 'wfh' } | Sort-Object)
                 if ($wfh.Count) {
                     $code = Invoke-Filer -Name 'HCM' -Script $hcmScript -Arguments @('-From', $wfh[0], '-To', $wfh[-1], '--mode', 'submit', '--headless')
-                    $filed += @($script:FilerOutput | Select-String '^\s+(\d{4}-\d{2}-\d{2}) \S+ \(\d+\): filed' | ForEach-Object { "HCM Telecommuting $($_.Matches[0].Groups[1].Value)" })
+                    $filed += @($script:FilerOutput | Select-String '^\s+(\d{4}-\d{2}-\d{2}) \S+ \(\d+\): filed( |$)' | ForEach-Object { "HCM Telecommuting $($_.Matches[0].Groups[1].Value)" })
                     if ($code -ne 0) { $failed += "HCM answered days (exit $code)"; $hcmCode = $code }
                 }
                 $pending = @($pending | Where-Object { -not $answers.ContainsKey($_) })
             }
         }
     }
-    if ($range -and $hcmCode -eq 0) {
+    if ($range -and $hcmCode -eq 0 -and $leaveKnown) {
         $state.hcmCoveredThrough = ConvertTo-IsoDate (Get-CoveredThrough -Range $range -Pending $pending)
     }
 
@@ -140,7 +147,7 @@ try {
         $code = Invoke-Filer -Name 'XM' -Script $xmScript -Arguments @('-Week', (ConvertTo-IsoDate $w.AddDays(1)), '-Leave', $leavePath,
             '--mode', 'submit', '--headless', '--assume-unknown-workday', '--non-interactive')
         if ($code -eq 0) { $filed += "XM timesheet week of $label"; $state.xmWeeksDone = @(@($state.xmWeeksDone) + $label) }
-        elseif ($code -eq 3) { Write-RunLog "XM week of $label already has a timesheet; left alone."; $state.xmWeeksDone = @(@($state.xmWeeksDone) + $label) }
+        elseif ($code -eq 3) { Write-RunLog "XM week of $label already has a timesheet; left alone."; $attention += "XM week of $label already has a timesheet; not touched - check it in XM"; $state.xmWeeksDone = @(@($state.xmWeeksDone) + $label) }
         else { $failed += "XM week of $label (exit $code)" }
     }
 
@@ -150,8 +157,8 @@ try {
     Write-RunLog "ERROR $($_.Exception.Message)"
 } finally {
     if (-not $WhatIf) {
-        if ($failed.Count) {
-            Show-AutoFileNotification -Title 'InforAutofill: something needs a look' -Text (($failed -join '; ') + ". Log: $runLogPath") -IsError
+        if ($failed.Count -or $attention.Count) {
+            Show-AutoFileNotification -Title 'InforAutofill: something needs a look' -Text ((@($failed) + @($attention) -join '; ') + ". Log: $runLogPath") -IsError
         } elseif ($filed.Count) {
             Show-AutoFileNotification -Title 'InforAutofill: filed' -Text ($filed -join '; ')
         }
