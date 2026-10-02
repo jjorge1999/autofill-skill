@@ -712,6 +712,7 @@ async function main() {
   };
 
   let loginNeeded = false;
+  let leaveFailed = false;
   let context = null;
   try {
     if (jobs.length || args.leaveOut) {
@@ -722,6 +723,7 @@ async function main() {
         loginNeeded = true;
         for (const j of jobs) { j.result = 'error'; j.detail = 'Infor sign-in needed (headless run stopped at the login page)'; }
       } else if (!frame) {
+        if (args.leaveOut) { leaveFailed = true; log('Leave export failed: HCM calendar could not be opened'); }
         for (const j of jobs) { j.result = 'error'; j.detail = 'HCM calendar could not be opened (login timeout or page changed)'; }
       } else {
         if (args.leaveOut) {
@@ -775,6 +777,7 @@ async function main() {
     log(`Run log: ${logFile}`);
   }
   if (loginNeeded) return EXIT_LOGIN_NEEDED;
+  if (leaveFailed) return 1;
   return results.some((r) => r.result === 'error') ? 1 : 0;
 }
 

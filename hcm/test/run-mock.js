@@ -200,6 +200,18 @@ async function savedRequests(profile) {
     assert.strictEqual(r7.code, 0);
   });
 
+  // ---------------------------------------------------------------- leave export, calendar cannot be opened
+  console.log('\nScenario 8: leave export when the calendar does not open');
+  const leave8 = path.join(tmp, 'leave8.json');
+  const r8 = run('leavefail', ['--from', '2026-09-01', '--to', '2026-09-15', '--leave-out', leave8], [], {}, {
+    urls: { app: 'data:text/html,<p>not a calendar</p>', portal: null, appUrlPatterns: ['^data:'] },
+    timeouts: { calendarMs: 3000, loginMs: 15000, monthSettleMs: 800 },
+  });
+  check('exit 1 and no leave file when the calendar cannot be opened', () => {
+    assert.strictEqual(r8.code, 1);
+    assert.ok(!fs.existsSync(leave8));
+  });
+
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
   fs.rmSync(tmp, { recursive: true, force: true });
   process.exitCode = failures ? 1 : 0;
