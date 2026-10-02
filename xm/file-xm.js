@@ -127,6 +127,21 @@ function loadOverrides(file) {
   }
   return out;
 }
+/**
+ * HCM leave entries win over wfh/office overrides (a leave day is 8 h, never 9 h);
+ * a leave-type override (vacation|sick|holiday|leave) still wins over the leave file.
+ */
+function mergeLeaveAndOverrides(leave, overrides, warn = () => {}) {
+  const out = { ...leave };
+  for (const [date, v] of Object.entries(overrides)) {
+    if (out[date] && WORK.includes(v)) {
+      warn(`${date}: override "${v}" ignored - HCM shows ${out[date]}`);
+      continue;
+    }
+    out[date] = v;
+  }
+  return out;
+}
 function loadHolidays(file) {
   if (!file || !fs.existsSync(file)) return new Set();
   const raw = readJson(file);
@@ -330,8 +345,7 @@ async function run(argv, hooks = {}) {
     const holidaysPath = opts.holidays ? path.resolve(opts.holidays) : resolveFrom(cfgDir, cfg.paths.holidays);
     const src = {
       summary: loadSummary(opts.summary && path.resolve(opts.summary)),
-      // HCM leave entries first; explicit overrides win
-      overrides: { ...loadOverrides(opts.leave && path.resolve(opts.leave)), ...loadOverrides(overridesPath) },
+      overrides: mergeLeaveAndOverrides(loadOverrides(opts.leave && path.resolve(opts.leave)), loadOverrides(overridesPath), warn),
       holidays: loadHolidays(holidaysPath),
     };
     if (!opts.summary) warn('No --summary given; every weekday without an override or holiday counts as unknown.');
@@ -657,7 +671,7 @@ async function confirmDialog(page, S, ms, step) {
   return false;
 }
 
-module.exports = { run, parseArgs, parsePeriod, weekOf, classifyWeek, expectedHours, formatDate, EXIT };
+module.exports = { run, parseArgs, parsePeriod, weekOf, classifyWeek, expectedHours, formatDate, mergeLeaveAndOverrides, EXIT };
 
 if (require.main === module) {
   run(process.argv.slice(2)).then(r => {

@@ -139,11 +139,25 @@ const tests = [
     assert.strictEqual(kind['2026-09-24'], 'leave');
     assert.strictEqual(r.exitCode, 0, r.log.error && r.log.error.message);
   }],
-  ['overrides win over the leave file', async () => {
-    const ov = write('ov-wins.json', { '2026-09-23': 'wfh' });
+  ['HCM leave beats a wfh/office override (8 h, not 9 h)', async () => {
+    const ov = write('ov-work.json', { '2026-09-23': 'wfh', '2026-09-24': 'office' });
+    const lv = write('leave-wed-thu.json', { '2026-09-23': 'sick', '2026-09-24': 'leave' });
+    const r = await run([...common, '--overrides', ov, '--leave', lv, '--config', cfgFile, '--url', portal, '--dry-run']);
+    const day = d => r.log.days.find(x => x.date === d);
+    assert.strictEqual(day('2026-09-23').kind, 'leave');
+    assert.strictEqual(day('2026-09-23').status, 'sick');
+    assert.strictEqual(day('2026-09-24').kind, 'leave');
+    assert.strictEqual(r.log.expected['Personal Time Off And Holidays']['2026-09-23'], 8);
+    assert.ok(r.log.warnings.some(w => /2026-09-23.*"wfh".*HCM shows sick/.test(w)), r.log.warnings.join(' | '));
+    assert.strictEqual(r.exitCode, 0, r.log.error && r.log.error.message);
+  }],
+  ['a leave-type override still wins over the leave file', async () => {
+    const ov = write('ov-vac.json', { '2026-09-23': 'vacation' });
     const lv = write('leave-wed.json', { '2026-09-23': 'sick' });
     const r = await run([...common, '--overrides', ov, '--leave', lv, '--config', cfgFile]);
-    assert.strictEqual(r.log.days.find(d => d.date === '2026-09-23').kind, 'workday');
+    const wed = r.log.days.find(d => d.date === '2026-09-23');
+    assert.strictEqual(wed.kind, 'leave');
+    assert.strictEqual(wed.status, 'vacation');
     assert.strictEqual(r.exitCode, 2); // Thu still unknown -> stops before the browser
   }],
   ['headless run on a login page exits 5', async () => {
