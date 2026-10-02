@@ -12,12 +12,13 @@
   .\run-xm.ps1 --mode submit
 #>
 # No param() block: declared parameters bind positionally, so '--mode draft' would land in -Week.
-# Parse -Week by name and pass everything else (--mode, --dry-run, ...) through to node.
+# Parse -Week and -Leave by name and pass everything else (--mode, --dry-run, ...) through to node.
 $ErrorActionPreference = 'Stop'
-$Week = $null; $passThru = @()
+$Week = $null; $Leave = $null; $passThru = @()
 for ($i = 0; $i -lt $args.Count; $i++) {
     switch -Regex ([string]$args[$i]) {
         '^-Week$' { $Week = $args[++$i]; break }
+        '^-Leave$' { $Leave = $args[++$i]; break }
         default { $passThru += $args[$i] }
     }
 }
@@ -42,7 +43,11 @@ try {
     & $summaryScript -From $start -To $end -AsJson -JsonPath $tmp | Out-Null
     if (-not (Test-Path -LiteralPath $tmp)) { throw "Get-DailySummary.ps1 did not produce $tmp" }
 
-    & node (Join-Path $PSScriptRoot 'file-xm.js') --summary $tmp --week $weekArg @passThru
+    $nodeArgs = @('--summary', $tmp, '--week', $weekArg)
+    if ($Leave) { $nodeArgs += @('--leave', $Leave) }
+    # node writes warnings to stderr; under 'Stop' a redirected stderr line would abort this script mid-run
+    $ErrorActionPreference = 'Continue'
+    & node (Join-Path $PSScriptRoot 'file-xm.js') @nodeArgs @passThru
     $code = $LASTEXITCODE
 } finally {
     Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue

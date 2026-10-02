@@ -40,7 +40,13 @@ try {
     & $summaryScript @summaryArgs | Out-Null
     if (-not (Test-Path -LiteralPath $tmp)) { throw "Get-DailySummary.ps1 did not produce $tmp" }
 
-    & node (Join-Path $PSScriptRoot 'file-hcm.js') --summary $tmp @passThru
+    $nodeArgs = @('--summary', $tmp)
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    if ($From) { $nodeArgs += @('--from', ([datetime]$From).ToString('yyyy-MM-dd', $inv)) }
+    if ($To) { $nodeArgs += @('--to', ([datetime]$To).ToString('yyyy-MM-dd', $inv)) }
+    # node writes warnings to stderr; under 'Stop' a redirected stderr line would abort this script mid-run
+    $ErrorActionPreference = 'Continue'
+    & node (Join-Path $PSScriptRoot 'file-hcm.js') @nodeArgs @passThru
     $code = $LASTEXITCODE
 } finally {
     Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
