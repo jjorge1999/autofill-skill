@@ -30,12 +30,16 @@ function Read-AutoFileState {
     if (Test-Path -LiteralPath $Path) {
         $s = [IO.File]::ReadAllText($Path) | ConvertFrom-Json
         $s.xmWeeksDone = @($s.xmWeeksDone | Where-Object { $_ })
+        $skipped = @()
+        if ($s.PSObject.Properties.Name -contains 'xmWeeksSkipped') { $skipped = @($s.xmWeeksSkipped | Where-Object { $_ }) }
+        $s | Add-Member -NotePropertyName xmWeeksSkipped -NotePropertyValue $skipped -Force
         return $s
     }
     return [pscustomobject]@{
         startedOn         = ConvertTo-IsoDate $Today.Date
         hcmCoveredThrough = ConvertTo-IsoDate $Today.Date.AddDays(-1)
         xmWeeksDone       = @()
+        xmWeeksSkipped    = @()
     }
 }
 
@@ -45,6 +49,8 @@ function Save-AutoFileState {
         startedOn         = $State.startedOn
         hcmCoveredThrough = $State.hcmCoveredThrough
         xmWeeksDone       = @(@($State.xmWeeksDone) | Where-Object { $_ } | Sort-Object -Unique)
+        # weeks past the XM cap that were reported once (never filed automatically)
+        xmWeeksSkipped    = @(@($State.xmWeeksSkipped) | Where-Object { $_ } | Sort-Object -Unique)
     }
     Write-JsonFile $out $Path
 }
@@ -102,4 +108,65 @@ function Merge-OverrideAnswers {
     $out = [ordered]@{}
     foreach ($k in ($map.Keys | Sort-Object)) { $out[$k] = $map[$k] }
     Write-JsonFile $out $Path
+}
+
+function Reset-AutoFileStateForForce {
+    # -Force: reconsider the last 14 days for HCM. XM weeks already done stay done (the filer's exists-check is not a substitute).
+    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)][datetime]$Today)
+    $State.hcmCoveredThrough = ConvertTo-IsoDate $Today.Date.AddDays(-15)
+}
+
+function Get-SkippedHcmDays {
+    # Days after hcmCoveredThrough that Get-HcmRange drops because they are more than MaxDaysBack days back: @{From; To} or $null.
+    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)][datetime]$Today, [int]$MaxDaysBack = 14)
+    $from = (ConvertFrom-IsoDate $State.hcmCoveredThrough).AddDays(1)
+    $floor = $Today.Date.AddDays(-$MaxDaysBack)
+    if ($from -ge $floor) { return $null }
+    return @{ From = $from; To = $floor.AddDays(-1) }
+}
+
+function Get-SkippedXmWeeks {
+    # Sundays of weeks older than MaxWeeksBack (not before the week of startedOn) that are neither done nor already reported.
+    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)][datetime]$Today, [int]$MaxWeeksBack = 2)
+    $done = @($State.xmWeeksDone)
+    $reported = @()
+    if ($State.PSObject.Properties.Name -contains 'xmWeeksSkipped') { $reported = @($State.xmWeeksSkipped) }
+    $thisSun = $Today.Date.AddDays(-[int]$Today.DayOfWeek)
+    $started = ConvertFrom-IsoDate $State.startedOn
+    $firstSun = $started.AddDays(-[int]$started.DayOfWeek)
+    $last = $thisSun.AddDays(-7 * ($MaxWeeksBack + 1))
+    $out = @()
+    for ($w = $firstSun; $w -le $last; $w = $w.AddDays(7)) {
+        $k = ConvertTo-IsoDate $w
+        if ($done -contains $k -or $reported -contains $k) { continue }
+        $out += $w
+    }
+    return , $out
+}
+
+function Get-HcmFilerFindings {
+    # Scans file-hcm.js output: verified filings, filed-unverified days, office readings that beat an override, unrecognised entries.
+    param([string[]]$Output = @())
+    $r = @{ Filed = @(); Unverified = @(); OfficeReading = @(); Unrecognised = @() }
+    foreach ($line in $Output) {
+        if ($line -match '^\s+(\d{4}-\d{2}-\d{2}) \S+ \(\d+\): filed( |$)') { $r.Filed += $Matches[1] }
+        elseif ($line -match '^\s+(\d{4}-\d{2}-\d{2}) \S+ \(\d+\): filed-unverified') { $r.Unverified += $Matches[1] }
+        elseif ($line -match '^\s*WARNING (\d{4}-\d{2}-\d{2}): .*override "([^"]*)".*skipped-office-reading') { $r.OfficeReading += @{ Date = $Matches[1]; Override = $Matches[2] } }
+        elseif ($line -match '^\s*UNRECOGNISED (\d{4}-\d{2}-\d{2}): (.*)$') { $r.Unrecognised += @{ Date = $Matches[1]; Text = $Matches[2].Trim() } }
+    }
+    return $r
+}
+
+function Test-XmSubmitUnconfirmed {
+    # True when file-xm.js clicked Submit but saw no "Submitted" confirmation.
+    param([string[]]$Output = @())
+    return [bool](@($Output | Where-Object { $_ -match '\[xm\] WARNING: Submit clicked but no' }).Count)
+}
+
+function Get-WeekBlockers {
+    # Dates (yyyy-MM-dd) inside the Sun-Sat week starting at Week that overrides.json does not explain.
+    param([Parameter(Mandatory = $true)][datetime]$Week, [string[]]$Dates = @(), [hashtable]$Overrides = @{})
+    $from = ConvertTo-IsoDate $Week
+    $to = ConvertTo-IsoDate $Week.AddDays(6)
+    return @($Dates | Where-Object { $_ -and $_ -ge $from -and $_ -le $to -and -not $Overrides.ContainsKey($_) } | Sort-Object -Unique)
 }

@@ -64,6 +64,53 @@ Merge-OverrideAnswers -Path $ov -Answers @{ '2026-10-06' = 'office'; '2026-10-01
 $m = Read-JsonMap -Path $ov
 Assert-Equal '2026-09-28=wfh,2026-10-01=leave,2026-10-06=office' ((($m.Keys | Sort-Object) | ForEach-Object { "$_=$($m[$_])" }) -join ',') 'overrides merged'
 
+# state keeps xmWeeksSkipped (weeks reported once as past the cap)
+$st3 = Read-AutoFileState -Path (Join-Path $tmp 'state.json') -Today (D '2026-10-08')
+Assert-Equal '' ($st3.xmWeeksSkipped -join ',') 'old state file without xmWeeksSkipped reads as empty'
+$st3.xmWeeksSkipped = @('2026-09-06')
+Save-AutoFileState -State $st3 -Path (Join-Path $tmp 'state.json')
+$st4 = Read-AutoFileState -Path (Join-Path $tmp 'state.json') -Today (D '2026-10-08')
+Assert-Equal '2026-09-06' ($st4.xmWeeksSkipped -join ',') 'xmWeeksSkipped round trip'
+
+# -Force resets only the HCM coverage
+$sf = S '2026-09-01' '2026-10-06' @('2026-09-27')
+Reset-AutoFileStateForForce -State $sf -Today (D '2026-10-07')
+Assert-Equal '2026-09-22' $sf.hcmCoveredThrough '-Force: HCM coverage goes back 15 days'
+Assert-Equal '2026-09-27' ($sf.xmWeeksDone -join ',') '-Force keeps xmWeeksDone'
+
+# window caps never drop days silently
+$sk = Get-SkippedHcmDays -State (S '2026-01-01' '2026-09-10' @()) -Today (D '2026-10-07')
+Assert-Equal '2026-09-11..2026-09-22' ("{0}..{1}" -f (ConvertTo-IsoDate $sk.From), (ConvertTo-IsoDate $sk.To)) 'HCM days past the 14-day cap are listed'
+Assert-Equal '' (Get-SkippedHcmDays -State (S '2026-01-01' '2026-09-22' @()) -Today (D '2026-10-07')) 'nothing skipped when within the cap'
+$sw = Get-SkippedXmWeeks -State (S '2026-09-01' '2026-10-11' @('2026-09-06')) -Today (D '2026-10-12')
+Assert-Equal '2026-08-30,2026-09-13,2026-09-20' (($sw | ForEach-Object { ConvertTo-IsoDate $_ }) -join ',') 'XM weeks past the 2-week cap, from the week of startedOn, not done'
+$st5 = S '2026-09-01' '2026-10-11' @('2026-09-06')
+$st5 | Add-Member -NotePropertyName xmWeeksSkipped -NotePropertyValue @('2026-08-30')
+$sw = Get-SkippedXmWeeks -State $st5 -Today (D '2026-10-12')
+Assert-Equal '2026-09-13,2026-09-20' (($sw | ForEach-Object { ConvertTo-IsoDate $_ }) -join ',') 'already reported weeks are not reported again'
+$sw = Get-SkippedXmWeeks -State (S '2026-10-07' '2026-10-11' @()) -Today (D '2026-10-12')
+Assert-Equal '' (($sw | ForEach-Object { ConvertTo-IsoDate $_ }) -join ',') 'no skipped weeks right after the first run'
+
+# filer output scanning
+$hcmOut = @(
+    'WARNING 2026-10-05: office reading in the presence log; override "wfh" ignored, not filed (skipped-office-reading)',
+    '  2026-10-06 wfh (248): filed - calendar shows "Telecommuting: Full Day"',
+    '  2026-10-07 wfh (248): filed-unverified - dialog closed but no entry visible in the cell yet',
+    'UNRECOGNISED 2026-10-08: Official Business: Full Day',
+    '2026-10-05  wfh       skipped-office-reading')
+$f = Get-HcmFilerFindings -Output $hcmOut
+Assert-Equal '2026-10-05=wfh' (($f.OfficeReading | ForEach-Object { "$($_.Date)=$($_.Override)" }) -join ',') 'HCM office-reading warnings found once'
+Assert-Equal '2026-10-07' ($f.Unverified -join ',') 'HCM filed-unverified found'
+Assert-Equal '2026-10-06' ($f.Filed -join ',') 'HCM filed (verified only)'
+Assert-Equal '2026-10-08=Official Business: Full Day' (($f.Unrecognised | ForEach-Object { "$($_.Date)=$($_.Text)" }) -join ',') 'HCM unrecognised entries found'
+Assert-Equal 'True' (Test-XmSubmitUnconfirmed -Output @('[xm] Submit clicked', '[xm] WARNING: Submit clicked but no "Submitted" confirmation seen; check XM.')) 'XM unconfirmed submit detected'
+Assert-Equal 'False' (Test-XmSubmitUnconfirmed -Output @('[xm] Submit clicked', '[xm] submitted')) 'XM confirmed submit'
+
+# weeks blocked by unrecognised HCM entries (Sun-Sat), unless overrides.json explains the date
+Assert-Equal '2026-10-08' ((Get-WeekBlockers -Week (D '2026-10-04') -Dates @('2026-10-08', '2026-10-12') -Overrides @{}) -join ',') 'unrecognised date inside the week blocks it'
+Assert-Equal '' ((Get-WeekBlockers -Week (D '2026-10-04') -Dates @('2026-10-08') -Overrides @{ '2026-10-08' = 'wfh' }) -join ',') 'override explains an unrecognised date'
+Assert-Equal '' ((Get-WeekBlockers -Week (D '2026-10-04') -Dates @('2026-10-03', '2026-10-11') -Overrides @{}) -join ',') 'dates outside the week do not block it'
+
 Remove-Item -Recurse -Force $tmp
 if ($script:failures) { Write-Host "$script:failures failure(s)" -ForegroundColor Red; exit 1 }
 Write-Host 'All auto-file logic tests passed' -ForegroundColor Green
