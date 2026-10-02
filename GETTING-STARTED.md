@@ -118,11 +118,11 @@ If any weekday is still `unknown`, it files nothing and exits with code `2`, lis
 
 ## 8. Typical weekly routine
 
-1. Detection runs itself all week via the scheduled task.
-2. On **Friday**, run `.\Get-DailySummary.ps1` and check for any `unknown` days.
-3. Fill those in `hcm\overrides.json` (and holidays in `xm\holidays.json`).
-4. Run the HCM and XM filers in **draft**, review in the Infor UI, then run again with `--mode submit`.
-
+1. Detection and filing run themselves via the scheduled tasks (presence checks all day, filing at 16:30 and after logon).
+2. If a dialog asks about an `unknown` day, answer WFH / Office / Leave.
+3. If a notification says Infor needs a sign-in, sign in in the Edge window that opens; the run continues.
+4. If a notification says an XM week already has a timesheet, check it in XM; it is not touched.
+5. To preview what the next run would do: `.\Invoke-AutoFile.ps1 -WhatIf`
 ## 9. A note on publishing
 
 Publishing this project to GitHub is still pending (connection issue), so it currently lives only in the local git repo.
