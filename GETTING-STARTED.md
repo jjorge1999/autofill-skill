@@ -124,6 +124,7 @@ If any weekday is still `unknown`, it files nothing and exits with code `2`, lis
 4. If a notification says an XM week already has a timesheet, check it in XM; it is not touched.
 5. If you answer "Leave" in the dialog, file that leave in HCM yourself (XM counts it 8 h; HCM gets nothing).
 6. To preview what the next run would do: `.\Invoke-AutoFile.ps1 -WhatIf` (day statuses and the days it would ask about; it does not check HCM leave or XM).
+7. Optional: `.\Install-Ui.ps1` adds an InforAutofill shortcut (Desktop and Start menu). The window shows today and the week, previews, marks days WFH/Office/Leave, and has a File now button (real filing, same as the scheduled run) and an On/Off switch for the scheduled tasks. See the README, section "Window".
 
 ## 9. A note on publishing
 

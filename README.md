@@ -71,3 +71,13 @@ Hours: a worked day is 9 h (ERP_M3_Experience 2 + ERP_M3_Maintenance 7), a leave
 - Preview (no browser, no dialog, no changes): `.\Invoke-AutoFile.ps1 -WhatIf` lists the day statuses (with overrides) and the days it would ask about. It does not open HCM or XM, so it cannot see HCM leave (a leave day may be listed as one it would ask about) and does not check XM.
 - `-Force` reconsiders the last 14 days for HCM; XM weeks already filed stay done. `-Today` cannot be later than the real date.
 - Remove both scheduled tasks: `.\Install-Scheduler.ps1 -Uninstall`
+
+## Window
+
+An optional window shows the state of things and drives filing. Run `.\Install-Ui.ps1` once; it adds an **InforAutofill** shortcut to the Desktop and the Start menu. Open it from either. `.\Install-Ui.ps1 -Uninstall` removes the shortcuts. Filing runs without the window.
+
+- It shows today, this week with the HCM marks per day, and the XM line.
+- **Preview** is read-only (the same as `Invoke-AutoFile.ps1 -WhatIf`). **File now** does real filing, exactly like the scheduled run: it can submit HCM requests and the XM timesheet and may ask you questions.
+- Click a day to mark it WFH, Office or Leave. This writes `hcm\overrides.json`. An office reading still wins over a WFH mark, and a leave mark must still be filed in HCM yourself.
+- The On/Off switch enables or disables both scheduled tasks (`InforAutofill-File` and `InforAutofill-PresenceCheck`), so Off stops scheduled filing.
+- Settings: filing time (`file_time`) and the log folder.
