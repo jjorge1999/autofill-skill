@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const readline = require('readline');
+const guard = require(path.join(__dirname, '..', 'hcm', 'leave-guard'));
 
 const XM_DIR = __dirname;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -358,6 +359,27 @@ async function run(argv, hooks = {}) {
         `Not filling: no office/WFH reading for ${unknown.map(d => `${d.date} (${d.day})`).join(', ')}.\n` +
         `Add these dates to ${overridesPath}, e.g. {"${unknown[0].date}": "vacation"} (vacation|sick|holiday|leave|wfh|office), ` +
         'or rerun with --assume-unknown-workday.');
+    }
+    // Both-or-neither guard: XM books every leave day as 8h leave. Warn if HCM
+    // cannot file the same vacation/sick day (its plan code is unconfigured),
+    // because that would leave the day recorded in XM only. We read the HCM
+    // config so XM never files one-sided silently; XM still books its 8h so the
+    // week total stays correct. (holiday is not plan-checked: HCM shows it
+    // natively while XM books 8h, which is expected.)
+    const leaveDays = days.filter(d => d.kind === 'leave' && guard.isPlanCheckedLeave(d.status));
+    log.leaveMismatches = [];
+    if (leaveDays.length) {
+      const hcmConfigPath = (cfg.paths && cfg.paths.hcmConfig)
+        ? resolveFrom(cfgDir, cfg.paths.hcmConfig)
+        : guard.defaultHcmConfigPath();
+      const planCodes = guard.loadHcmPlanCodes(hcmConfigPath);
+      const { ok, blocked } = guard.checkLeaveDays(leaveDays, planCodes);
+      log.leaveMismatches = blocked;
+      if (!ok) {
+        warn(`${blocked.length} leave day(s) will be filed in XM but NOT in HCM (one-sided mismatch), using ${hcmConfigPath}:`);
+        for (const b of blocked) warn(`  ${b.date} (${b.status}): ${b.reason}`);
+        warn('Fix the HCM plan code(s) or mark the day "skip" so leave is filed in both systems. XM is still filing these days as 8h leave.');
+      }
     }
     const { rows, exp } = expectedHours(days, cfg);
     const weekdays = days.filter(d => d.kind !== 'weekend');

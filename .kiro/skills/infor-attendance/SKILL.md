@@ -104,7 +104,14 @@ Trigger on phrases like:
 
 1. Edit `hcm\overrides.json` for the dates (values `vacation`/`sick`/`holiday`/
    `wfh`/`office`/`skip`), and add any public holidays to `xm\holidays.json`.
-2. Confirm the edits back to the user, then offer to file (workflow b).
+2. **`vacation`/`sick` file in BOTH HCM and XM** (plan `404`/`403` in HCM, 8h in
+   XM). This is the normal, configured path, so just file both filers. Do NOT
+   file only one system for a leave day: if an HCM run reports `leave-mismatch`
+   (exit `3`) or an XM run warns about a one-sided leave, STOP and tell the user
+   that leave type's HCM plan code is unconfigured in `hcm\hcm.config.json`; fix
+   it (or mark the day `skip`) before filing, so leave is never recorded in only
+   one system.
+3. Confirm the edits back to the user, then offer to file (workflow b).
 
 ### d) "Dry run"
 
@@ -153,13 +160,19 @@ If detection is not set up (no office network captured, every day `unknown`):
 - **XM leave / holiday** (`vacation`/`sick`/`holiday`): 8h `Personal Time Off
   And Holidays`.
 - **HCM `wfh`**: plan `248` Telecommuting, full day.
+- **HCM `vacation`**: plan `404` Vacation, full day.
+- **HCM `sick`**: plan `403` Sick Leave, full day.
 - Weekends are untouched by both filers.
-- **HCM vacation/sick plan codes are currently `null`** in `hcm\hcm.config.json`
-  (`planCodes.vacation` / `planCodes.sick`). While null, HCM **skips** those
-  overrides with a warning (`skipped-unconfigured`). If the user asks to file
-  HCM vacation/sick, **warn them** those plan codes must be set in
-  `hcm.config.json` first, or the days will not be filed in HCM. (XM still files
-  such days as 8h leave regardless.)
+- **Leave files in BOTH systems (both-or-neither).** `vacation` and `sick` must
+  be fileable in HCM **and** XM. XM always books leave as 8h; HCM files it with
+  the plan code above. The plan codes `404`/`403` are configured in
+  `hcm\hcm.config.json`, so normal leave files in both. The shared guard
+  (`hcm\leave-guard.js`, used by both filers) refuses to file leave one-sided:
+  if a `vacation`/`sick` plan code is ever set back to `null`, HCM reports that
+  day as `leave-mismatch` and exits **3**, and XM warns that the day will be in
+  XM only (recorded under `leaveMismatches` in the run log). A public `holiday`
+  is NOT part of this check: HCM shows holidays natively (`skipped-holiday`)
+  while XM books 8h, which is expected.
 
 ## EXIT CODES
 
@@ -173,11 +186,17 @@ If detection is not set up (no office network captured, every day `unknown`):
 - `4` the new-timesheet (Document Header) screen was not reached.
 
 **HCM (`run-hcm.ps1` / `file-hcm.js`):**
-- Exit `1` if any date ended in `error`. Per-date results in the run log include
-  `filed`, `filed-unverified`, `skipped-existing`, `skipped-holiday`,
-  `skipped-weekend`, `skipped-future`, `skipped-office`, `skipped-unconfigured`,
-  `needs-input`, `dry-run`, `error`. Report any `error` dates (log includes the
-  dialog message and a screenshot) and any `needs-input` (unknown) dates.
+- Exit `1` if any date ended in `error`; exit `3` if any leave day ended in
+  `leave-mismatch` (and nothing worse); otherwise `0`. Per-date results in the
+  run log include `filed`, `filed-unverified`, `skipped-existing`,
+  `skipped-holiday`, `skipped-weekend`, `skipped-future`, `skipped-office`,
+  `skipped-unconfigured`, `leave-mismatch`, `needs-input`, `dry-run`, `error`.
+  Report any `error` dates (log includes the dialog message and a screenshot)
+  and any `needs-input` (unknown) dates. On `leave-mismatch` (exit `3`), surface
+  the `leaveMismatches` list and the `*** LEAVE DAY(S) CANNOT BE FILED IN BOTH
+  ... ***` message: the leave type's HCM plan code is `null` in
+  `hcm\hcm.config.json`, so the day would be one-sided; fix the plan code (or
+  mark the day `skip`) before filing.
 
 ## USEFUL FLAGS
 

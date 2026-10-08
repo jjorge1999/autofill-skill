@@ -9,6 +9,19 @@
 
 Weekends are left untouched. You can change the rules in `hours` in `xm.config.json`.
 
+## Leave files in both HCM and XM (both-or-neither guard)
+
+A `vacation`/`sick` day must be fileable in **both** systems. XM always books it as 8h
+leave, so if HCM cannot file the same day it would be recorded in XM only. Before
+filling, XM reads the HCM plan codes (from `paths.hcmConfig`, default
+`..\hcm\hcm.config.json`) through the shared [`..\hcm\leave-guard.js`](../hcm/leave-guard.js)
+module and **warns loudly** for every `vacation`/`sick` day whose HCM plan code is
+`null`/unconfigured. Those days are listed under `leaveMismatches` in the run log. XM
+still files its own 8h leave (so the week total stays correct), but the warning tells you
+to configure the HCM plan code (or mark the day `skip`) so leave is never one-sided.
+`vacation` → `404` and `sick` → `403` are configured out of the box, so normal leave is
+clean. A public `holiday` is not checked: HCM shows holidays natively, which is expected.
+
 ## Setup
 
 ```powershell
@@ -34,6 +47,9 @@ On the first run, log in to the Edge window that opens. You have up to 5 minutes
    With `--leave <file>` (HCM leave export), an HCM leave entry wins over a `wfh` / `office` override (logged as a
    warning); a leave-type override still wins over the HCM entry.
 3. The presence summary (`office` / `wfh`).
+
+Leave days (`vacation`/`sick`) are also cross-checked against the HCM plan codes; see the
+both-or-neither guard above.
 
 If any weekday is still `unknown`, nothing is filled. The script exits with code 2 and lists the dates for you to add to `overrides.json`. Use `--assume-unknown-workday` to count those days as workdays instead.
 

@@ -18,6 +18,9 @@ cfg.paths.logDir = path.join(tmp, 'logs');
 cfg.paths.screenshotDir = path.join(tmp, 'screenshots');
 Object.assign(cfg.timeouts, { loginMs: 10000, headerMs: 3000, navStepMs: 3000, gridMs: 5000, saveMs: 5000, confirmMs: 3000, submitMs: 3000, pollMs: 200 });
 const write = (name, data) => { const f = path.join(tmp, name); fs.writeFileSync(f, JSON.stringify(data, null, 2)); return f; };
+// Point the leave guard at the real hcm.config.json (vacation 404 / sick 403)
+// via an absolute path so configs written into the temp dir resolve it.
+cfg.paths = { ...cfg.paths, hcmConfig: path.resolve(XM, '..', 'hcm', 'hcm.config.json') };
 // cfgFile has no navigation, so the Document Header must already be on screen (?landing is not set).
 const cfgFile = write('xm.config.json', { ...cfg, navigation: [] });
 // The real navigation (Create a New... -> Timesheet) comes straight from xm.config.json.
@@ -79,6 +82,30 @@ const tests = [
     const r = await run([...base, '--config', cfgFile, '--no-import']);
     assert.strictEqual(r.exitCode, 1);
     assert.match(r.log.error.message, /--no-import is not supported/);
+  }],
+  ['leave day with a configured HCM plan code files in both (no mismatch warning)', async () => {
+    // vacation 404 / sick 403 configured, so the Thu vacation day is fileable in
+    // both systems; XM must not warn about a one-sided leave.
+    const hcmOk = write('hcm.ok.config.json', { planCodes: { wfh: '248', vacation: '404', sick: '403' } });
+    const cfgOk = write('xm.hcmok.config.json', { ...cfg, navigation: [], paths: { ...cfg.paths, hcmConfig: hcmOk } });
+    const r = await go([], portal, cfgOk);
+    assert.strictEqual(r.exitCode, 0, r.log.error && r.log.error.message);
+    assert.deepStrictEqual(r.log.leaveMismatches, [], 'no leave day should be flagged when HCM can file it');
+    assert.ok(!r.log.warnings.some(w => /one-sided mismatch/.test(w)), 'no one-sided warning expected');
+  }],
+  ['leave day with a null HCM plan code is warned as a one-sided mismatch', async () => {
+    // HCM vacation plan code is null -> the Thu vacation day would be filed in
+    // XM only. XM must warn loudly and record the mismatch (but still fills XM).
+    const hcmNull = write('hcm.null.config.json', { planCodes: { wfh: '248', vacation: null, sick: '403' } });
+    const cfgNull = write('xm.hcmnull.config.json', { ...cfg, navigation: [], paths: { ...cfg.paths, hcmConfig: hcmNull } });
+    const r = await go([], portal, cfgNull);
+    assert.strictEqual(r.exitCode, 0, r.log.error && r.log.error.message);
+    assert.ok(Array.isArray(r.log.leaveMismatches), 'leaveMismatches must be recorded');
+    assert.deepStrictEqual(r.log.leaveMismatches.map(m => m.date), ['2026-09-24'], 'the Thu vacation day is the mismatch');
+    assert.ok(r.log.warnings.some(w => /one-sided mismatch/.test(w)), 'a one-sided mismatch warning must be emitted');
+    // XM still files its side (leave hours present), it just warns about HCM.
+    assert.strictEqual(r.state.saved, true);
+    assertCells(r.state.cells);
   }],
   ['draft: header, overwrite of imported cells, Save, no Submit (with navigation step)', async () => {
     const r = await go([], portal + '?landing=1', navCfgFile);

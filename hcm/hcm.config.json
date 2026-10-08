@@ -14,11 +14,13 @@
   "dateFormat": "M/D/YYYY",
   "planCodes": {
     "wfh": "248",
-    "vacation": null,
-    "sick": null
+    "vacation": "404",
+    "sick": "403"
   },
   "planLabels": {
-    "248": "Telecommuting"
+    "248": "Telecommuting",
+    "404": "Vacation",
+    "403": "Sick Leave"
   },
   "additionalInfo": "",
   "weekendDays": [0, 6],

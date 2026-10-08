@@ -11,6 +11,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const guard = require('./leave-guard');
 
 const HERE = __dirname;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
@@ -18,6 +19,11 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
 const NO_FILE_OVERRIDES = ['office', 'skip', 'none', 'ignore', 'leave'];
 const LOGIN_NEEDED = 'login-needed';
 const EXIT_LOGIN_NEEDED = 5;
+// Both-or-neither leave guard: a vacation/sick day with no HCM plan code would
+// be filed in XM only. We flag it (never file one-sided) and exit with this
+// dedicated code. 3 is free here: 0 ok, 1 error/leaveFailed, 2 uncaught, 5
+// login-needed. (XM uses 3 for "already exists"; these are separate processes.)
+const EXIT_LEAVE_MISMATCH = 3;
 
 // ---------------------------------------------------------------- utilities
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -739,6 +745,16 @@ function planJobs(summary, overrides, cfg, args, today) {
     if (e.date > today && !args.allowFuture) { r.result = 'skipped-future'; continue; }
     const code = (cfg.planCodes || {})[planKey];
     if (code == null || code === '') {
+      // Both-or-neither guard: a vacation/sick day that HCM cannot file would
+      // still be filed in XM as 8h leave, creating a one-sided mismatch. Flag it
+      // loudly instead of silently skipping. (holiday is not plan-checked.)
+      if (guard.isPlanCheckedLeave(planKey)) {
+        r.result = 'leave-mismatch';
+        r.detail = `LEAVE MISMATCH: HCM has no plan code for "${planKey}" (set planCodes.${planKey} in hcm.config.json), `
+          + 'but XM would still file this day as 8h leave. Not filing one-sided.';
+        log(`WARNING ${e.date}: ${r.detail}`);
+        continue;
+      }
       r.result = 'skipped-unconfigured';
       r.detail = `no plan code configured for "${planKey}" (set planCodes.${planKey} in hcm.config.json)`;
       log(`WARNING ${e.date}: ${r.detail}`);
@@ -840,16 +856,25 @@ async function main() {
     if (context) await context.close().catch(() => {});
     runLog.finishedAt = new Date().toISOString();
     runLog.unknownDays = unknown;
+    const mismatches = results.filter((r) => r.result === 'leave-mismatch');
+    runLog.leaveMismatches = mismatches.map((r) => ({ date: r.date, status: r.override || r.status, detail: r.detail }));
     const logFile = path.join(logDir, `run-${runLog.startedAt.replace(/[:.]/g, '-')}.json`);
     fs.writeFileSync(logFile, JSON.stringify(runLog, null, 2));
     log('');
     for (const r of results) log(`${r.date}  ${(r.override || r.status).padEnd(9)} ${r.result || '?'}`);
     if (unknown.length) log(`\nunknown days need your input: ${unknown.join(', ')}\n  (add them to hcm/overrides.json, e.g. {"${unknown[0]}":"vacation"})`);
+    if (mismatches.length) {
+      log(`\n*** ${mismatches.length} LEAVE DAY(S) CANNOT BE FILED IN BOTH HCM AND XM ***`);
+      for (const r of mismatches) log(`  ${r.date} (${r.override || r.status}): ${r.detail}`);
+      log('  Configure the missing plan code(s) in hcm/hcm.config.json, or mark the day "skip", so leave is filed in both systems (never one-sided).');
+    }
     log(`Run log: ${logFile}`);
   }
   if (loginNeeded) return EXIT_LOGIN_NEEDED;
   if (leaveFailed) return 1;
-  return results.some((r) => r.result === 'error') ? 1 : 0;
+  if (results.some((r) => r.result === 'error')) return 1;
+  if (results.some((r) => r.result === 'leave-mismatch')) return EXIT_LEAVE_MISMATCH;
+  return 0;
 }
 
 if (require.main === module) {
