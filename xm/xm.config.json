@@ -47,6 +47,7 @@
   ],
   "paths": {
     "overrides": "../hcm/overrides.json",
+    "hcmConfig": "../hcm/hcm.config.json",
     "holidays": "holidays.json",
     "logDir": "logs",
     "screenshotDir": "screenshots"

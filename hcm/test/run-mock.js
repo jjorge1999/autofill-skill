@@ -30,8 +30,9 @@ function writeConfig(name, extra = {}) {
     browser: { channel: null, userDataDir: path.join(tmp, `${name}-profile`) },
     dateFormat: 'DD/MM/YYYY', // the mock's format; the real tenant uses M/D/YYYY
 
-    planCodes: { wfh: '248', vacation: null, sick: '300' },
-    planLabels: { 248: 'Telecommuting', 300: 'Sick Leave' },
+    // Production-like plan codes: vacation 404, sick 403 (both configured).
+    planCodes: { wfh: '248', vacation: '404', sick: '403' },
+    planLabels: { 248: 'Telecommuting', 404: 'Vacation', 403: 'Sick Leave', 300: 'Sick Leave' },
     paths: { logDir: path.join(tmp, `${name}-logs`), screenshotDir: path.join(tmp, `${name}-shots`) },
     timeouts: { calendarMs: 15000, loginMs: 15000, monthSettleMs: 800 },
     ...extra,
@@ -108,8 +109,8 @@ async function savedRequests(profile) {
     { date: '2026-09-04', status: 'unknown' },  // never filed, reported
     { date: '2026-09-05', status: 'wfh' },      // Saturday
     { date: '2026-09-10', status: 'wfh' },      // existing Vacation entry
-    { date: '2026-09-14', status: 'unknown' },  // overridden -> sick (plan 300)
-    { date: '2026-09-18', status: 'unknown' },  // overridden -> vacation (not configured)
+    { date: '2026-09-14', status: 'unknown' },  // overridden -> sick (plan 403)
+    { date: '2026-09-18', status: 'unknown' },  // overridden -> vacation (plan 404)
     { date: '2026-09-29', status: 'wfh' },      // -> file
     { date: '2026-09-30', status: 'wfh' },      // mock rejects -> error reported
     { date: '2026-10-01', status: 'wfh' },      // today -> file (next month)
@@ -132,19 +133,25 @@ async function savedRequests(profile) {
     assert.deepStrictEqual(r1.log.unknownDays, ['2026-09-04']);
     assert.match(r1.stdout, /unknown days need your input: 2026-09-04/);
   });
-  check('unconfigured vacation override skipped', () => assert.strictEqual(res('2026-09-18'), 'skipped-unconfigured'));
+  check('vacation override filed with plan 404', () => {
+    assert.strictEqual(res('2026-09-18'), 'filed');
+    assert.strictEqual(r1.byDate['2026-09-18'].planCode, '404');
+  });
   check('wfh dates filed', () => {
     for (const d of ['2026-09-02', '2026-09-29', '2026-10-01']) assert.strictEqual(res(d), 'filed', `${d}: ${JSON.stringify(r1.byDate[d])}`);
   });
-  check('override sick filed with plan 300', () => assert.strictEqual(res('2026-09-14'), 'filed'));
+  check('override sick filed with plan 403', () => {
+    assert.strictEqual(res('2026-09-14'), 'filed');
+    assert.strictEqual(r1.byDate['2026-09-14'].planCode, '403');
+  });
   check('rejected date reported as error with dialog message', () => {
     assert.strictEqual(res('2026-09-30'), 'error');
     assert.match(r1.byDate['2026-09-30'].detail, /overlaps an existing request/);
   });
   check('exit code 1 because of the error', () => assert.strictEqual(r1.code, 1));
-  check('mock received exactly the expected requests', () => {
+  check('mock received exactly the expected requests (vac 404, sick 403)', () => {
     const got = reqs1.map((q) => `${q.fromIso}:${q.plan}`).sort();
-    assert.deepStrictEqual(got, ['2026-09-02:248', '2026-09-14:300', '2026-09-29:248', '2026-10-01:248']);
+    assert.deepStrictEqual(got, ['2026-09-02:248', '2026-09-14:403', '2026-09-18:404', '2026-09-29:248', '2026-10-01:248']);
   });
   check('DD/MM/YYYY single-day dates', () => {
     const q = reqs1.find((x) => x.fromIso === '2026-09-02');
@@ -160,7 +167,7 @@ async function savedRequests(profile) {
   });
   check('no request for unknown/office/holiday/existing/weekend/future', () => {
     const filed = new Set(reqs1.map((q) => q.fromIso));
-    for (const d of ['2026-08-31', '2026-09-01', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-10', '2026-09-18', '2026-09-30', '2026-10-02']) {
+    for (const d of ['2026-08-31', '2026-09-01', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-10', '2026-09-30', '2026-10-02']) {
       assert.ok(!filed.has(d), `${d} was filed`);
     }
   });
@@ -194,6 +201,34 @@ async function savedRequests(profile) {
   check('already-filed date is skipped on re-run', () => {
     assert.strictEqual(r4.byDate['2026-09-02'].result, 'skipped-existing');
     assert.strictEqual(reqs4.length, reqs1.length);
+  });
+
+  // -------------------------------------------- both-or-neither leave guard
+  console.log('\nScenario 4b: leave day with no HCM plan code is flagged, not filed one-sided');
+  // vacation is null here; XM would still file 8h leave for 2026-09-16, so HCM
+  // must NOT silently skip it -- it is flagged as a leave mismatch (exit 3).
+  const rG = run('guard', [], [{ date: '2026-09-16', status: 'unknown' }],
+    { '2026-09-16': 'vacation' }, { planCodes: { wfh: '248', vacation: null, sick: '403' } });
+  const reqsG = await savedRequests(rG.profile);
+  check('leave day with null plan code is flagged leave-mismatch', () => {
+    assert.strictEqual(rG.byDate['2026-09-16'].result, 'leave-mismatch');
+    assert.match(rG.byDate['2026-09-16'].detail, /LEAVE MISMATCH/);
+  });
+  check('leave mismatch is not filed in HCM (no request sent)', () => {
+    assert.ok(!reqsG.some((q) => q.fromIso === '2026-09-16'), 'mismatch day must not be filed');
+  });
+  check('leave mismatch surfaces a prominent warning and exit code 3', () => {
+    assert.match(rG.stdout, /LEAVE DAY\(S\) CANNOT BE FILED IN BOTH HCM AND XM/);
+    assert.strictEqual(rG.code, 3);
+    assert.deepStrictEqual(rG.log.leaveMismatches.map((m) => m.date), ['2026-09-16']);
+  });
+  check('a configured sick day still files even when vacation is unconfigured', () => {
+    // sanity: sick (403) remains fileable; the mismatch only blocks the null plan
+    const r = run('guard2', [], [{ date: '2026-09-08', status: 'unknown' }],
+      { '2026-09-08': 'sick' }, { planCodes: { wfh: '248', vacation: null, sick: '403' } });
+    assert.strictEqual(r.byDate['2026-09-08'].result, 'filed');
+    assert.strictEqual(r.byDate['2026-09-08'].planCode, '403');
+    assert.strictEqual(r.code, 0);
   });
 
   // ---------------------------------------------------------------- leave export
