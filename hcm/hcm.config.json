@@ -1,0 +1,90 @@
+{
+  "urls": {
+    "app": "https://hcm-inforhcm-prd.inforcloudsuite.com/hcm/EmployeeSelfService/form/Employee(INFR,125406).XiEmployeeCalendarEEConsolidated?csk.showusingxi=true&csk.CHP=INFR-US&csk.lidkey=bcd25a8ea7ee906bb3033483e2233087&menu=EmployeeConsolidated.TimeAndAttendance&selectedPanel=Calendar&LogicalId=lid%3A%2F%2Finfor.lawson-ghr.8888",
+    "portal": "https://mingle-portal.inforcloudsuite.com/INFORHCM_PRD/c6351a83-90cf-4c46-a389-6442e518d488?favoriteContext=https%3A%2F%2Fhcm-inforhcm-prd.inforcloudsuite.com%2Fhcm%2FEmployeeSelfService%2Fform%2FEmployee%2528INFR%2C125406%2529.XiEmployeeCalendarEEConsolidated%3Fcsk.showusingxi%3Dtrue%26csk.CHP%3DINFR-US%26csk.lidkey%3Dbcd25a8ea7ee906bb3033483e2233087%26menu%3DEmployeeConsolidated.TimeAndAttendance%26selectedPanel%3DCalendar%26LogicalId%3Dlid%253A%252F%252Finfor.lawson-ghr.8888&LogicalId=lid%3A%2F%2Finfor.lawson-ghr.8888",
+    "appUrlPatterns": [
+      "^https://hcm-[^/]*\\.inforcloudsuite\\.com/hcm/",
+      "^https://mingle-portal\\.inforcloudsuite\\.com/"
+    ]
+  },
+  "browser": {
+    "channel": "msedge",
+    "userDataDir": "%LOCALAPPDATA%\\InforAutofill\\browser-profile"
+  },
+  "dateFormat": "M/D/YYYY",
+  "planCodes": {
+    "wfh": "248",
+    "vacation": "404",
+    "sick": "403"
+  },
+  "planLabels": {
+    "248": "Telecommuting",
+    "404": "Vacation",
+    "403": "Sick Leave"
+  },
+  "additionalInfo": "",
+  "weekendDays": [0, 6],
+  "paths": {
+    "logDir": "logs",
+    "screenshotDir": "screenshots"
+  },
+  "timeouts": {
+    "calendarMs": 45000,
+    "loginMs": 300000,
+    "dialogOpenMs": 4000,
+    "planConfirmMs": 15000,
+    "afterOkMs": 20000,
+    "monthSettleMs": 1500,
+    "headlessLoginMs": 15000
+  },
+  "openStrategies": ["click", "dblclick", "button"],
+  "clickPosition": { "x": 0.5, "y": 0.75 },
+  "selectors": {
+    "monthHeaderRegex": "^(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(\\d{4})$",
+    "monthHeaderCss": null,
+    "prevMonth": [
+      { "css": ".fc-button-prev" },
+      { "css": "button.prev" },
+      { "role": "button", "name": "/previous|prev\\b/i" },
+      { "css": "[aria-label*='previous' i], [title*='previous' i]" }
+    ],
+    "nextMonth": [
+      { "css": ".fc-button-next" },
+      { "css": "button.next" },
+      { "role": "button", "name": "/next/i" },
+      { "css": "[aria-label*='next' i], [title*='next' i]" }
+    ],
+    "dayCell": "td.fc-day[data-date], td[data-key], .monthview-table td, [role='gridcell']",
+    "dayNumber": ".fc-day-number, .day-text, .day-number, .date-number",
+    "otherMonthClassRegex": "\\b(alternate|prev-month|next-month|other-month|outside-month|is-other-month|fc-other-month)\\b",
+    "eventSelector": ".calendar-event, .calendar-event-content, .event-item",
+    "overlayEventSelector": ".fc-event",
+    "holidaySelector": ".holiday, .is-holiday, .calendar-holiday",
+    "entryTextRegex": ":\\s*(Full Day|Half Day|\\d)|Hours|Telecommut|Vacation|Leave|Sick|Pending|Approved|Draft|Rejected",
+    "cellTextIgnoreRegex": "",
+    "busySelector": ".busy-indicator-container, .busy, [aria-busy='true'], .loading",
+    "openButton": [
+      { "role": "button", "name": "/Request Time Off|New Request|^Add\\b/i" },
+      { "role": "menuitem", "name": "/Request Time Off|New Request|^Add\\b/i" },
+      { "text": "/^(Request Time Off|New Request)$/i" }
+    ],
+    "dialog": [
+      { "css": "[role='dialog']:has-text('Request Time Off')" },
+      { "css": "[role='alertdialog']:has-text('Request Time Off')" },
+      { "css": ".modal:has-text('Request Time Off')" }
+    ],
+    "planInput": [{ "label": "/^Plan/i" }, { "near": "Plan", "nth": 0 }],
+    "dateFrom": [{ "css": "input.PrmBeginDate" }, { "near": "Dates", "nth": 0 }, { "label": "/^Dates/i" }],
+    "dateTo": [{ "css": "input.PrmEndDate" }, { "near": "Dates", "nth": 1 }],
+    "fullDay": [{ "label": "Full Day", "exact": true }, { "role": "checkbox", "name": "Full Day" }],
+    "submitRadio": [{ "label": "Submit request for approval" }, { "role": "radio", "name": "/Submit request for approval/i" }],
+    "draftRadio": [{ "label": "Save as draft and submit later" }, { "role": "radio", "name": "/Save as draft/i" }],
+    "additionalInfo": [{ "label": "/^Additional Information/i" }, { "css": "textarea" }],
+    "okButton": [{ "role": "button", "name": "OK", "exact": true }, { "css": "button:has-text('OK')" }],
+    "cancelButton": [{ "role": "button", "name": "Cancel", "exact": true }, { "css": "button:has-text('Cancel')" }],
+    "dialogError": ".error-message, .message-error, [role='alert'], .field-error, .error-text",
+    "postSubmitMessage": "[role='alertdialog'], [role='dialog'], .toast-message",
+    "leaveTextRegex": "Vacation|Sick|Leave|Holiday",
+    "loginForm": "input[type='password'], input[name='loginfmt'], #i0116"
+  }
+}

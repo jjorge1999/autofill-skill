@@ -1,0 +1,18 @@
+{
+  "name": "infor-xm-autofill",
+  "version": "1.0.0",
+  "description": "Auto-fills the weekly Infor XM timesheet from the daily presence summary",
+  "main": "file-xm.js",
+  "private": true,
+  "scripts": {
+    "file": "node file-xm.js",
+    "dry-run": "node file-xm.js --dry-run",
+    "test": "node test/run-mock.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}
