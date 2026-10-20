@@ -80,11 +80,14 @@ function iso(d) {
 }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function formatDate(d, fmt) {
-  return fmt.replace(/YYYY|YY|MM|DD|Mon|ddd/g, t => ({
+  // M / D are the unpadded month / day (XM's US layout: "Mon 10/12", "Oct 11, 2026")
+  return fmt.replace(/YYYY|YY|MM|DD|Mon|ddd|M|D/g, t => ({
     YYYY: String(d.getFullYear()),
     YY: String(d.getFullYear()).slice(-2),
     MM: String(d.getMonth() + 1).padStart(2, '0'),
     DD: String(d.getDate()).padStart(2, '0'),
+    M: String(d.getMonth() + 1),
+    D: String(d.getDate()),
     Mon: MONTHS[d.getMonth()],
     ddd: DAYS[d.getDay()],
   })[t]);
@@ -101,13 +104,17 @@ function weekOf(dateStr, cfg) {
   return { start, end: dates[6], dates };
 }
 
-// Parses "13-Sep-2026 - 19-Sep-2026" into start/end Dates.
+// Parses "13-Sep-2026 - 19-Sep-2026" (older XM documents) or "Nov 8, 2026 - Nov 14, 2026" (newer ones)
+// into start/end Dates. My Documents lists both styles side by side.
 function parsePeriod(label) {
-  const m = /(\d{1,2})-([A-Za-z]{3})-(\d{4})\s*-\s*(\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(label || '');
-  if (!m) return null;
   const mon = s => MONTHS.findIndex(x => x.toLowerCase() === s.toLowerCase());
-  if (mon(m[2]) < 0 || mon(m[5]) < 0) return null;
-  return { start: new Date(+m[3], mon(m[2]), +m[1], 12), end: new Date(+m[6], mon(m[5]), +m[4], 12) };
+  const make = (d1, m1, y1, d2, m2, y2) => (mon(m1) < 0 || mon(m2) < 0 ? null
+    : { start: new Date(+y1, mon(m1), +d1, 12), end: new Date(+y2, mon(m2), +d2, 12) });
+  let m = /(\d{1,2})-([A-Za-z]{3})-(\d{4})\s*-\s*(\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(label || '');
+  if (m) return make(m[1], m[2], m[3], m[4], m[5], m[6]);
+  m = /([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),\s*(\d{4})\s*-\s*([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),\s*(\d{4})/.exec(label || '');
+  if (m) return make(m[2], m[1], m[3], m[5], m[4], m[6]);
+  return null;
 }
 
 // ---------- day classification ----------

@@ -566,24 +566,39 @@ async function openDialog(page, frame, cfg, cellIdx, state) {
 async function setChecked(dlg, specs, labelText) {
   // HCM reveals Full Day / Half Day only after the plan's details load, a moment after its label shows,
   // so wait for a visible control before falling back to a hidden one.
-  const el = (await firstAvailable(dlg, specs, 10000)) || (await firstAvailable(dlg, specs, 0, false));
-  if (!el) throw new Error(`"${labelText}" control not found`);
-  if (await el.isChecked().catch(() => false)) return;
-  try { await el.check({ timeout: 3000 }); } catch {
-    try { await el.check({ force: true, timeout: 3000 }); } catch {
-      // Infor's styled checkboxes keep the <input> invisible and render the visible control on its <label>;
-      // the dialog also holds hidden copies, so click the visible label and judge by the input it points to.
-      const esc = labelText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const labels = dlg.locator('label').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) });
-      const n = Math.min(await labels.count().catch(() => 0), 10);
-      for (let i = 0; i < n; i++) {
-        const lb = labels.nth(i);
-        if (!(await lb.isVisible().catch(() => false))) continue;
-        await lb.click({ timeout: 5000 });
-        const forId = await lb.getAttribute('for');
-        if (forId && (await dlg.locator(`[id="${forId}"]`).isChecked().catch(() => false))) return;
-      }
+  const found = (await firstAvailable(dlg, specs, 10000)) || (await firstAvailable(dlg, specs, 0, false));
+  if (!found) throw new Error(`"${labelText}" control not found`);
+  // pin by id: the dialog re-renders as the plan loads, so an nth()-based locator can drift to another element
+  const id = await found.getAttribute('id', { timeout: 2000 }).catch(() => null);
+  const el = id ? dlg.locator(`[id="${id}"]`) : found;
+  // the app applies a click a moment later, so poll before deciding an attempt failed
+  // (clicking again on a box that was in fact checked would uncheck it)
+  const settled = async () => {
+    for (let i = 0; i < 10; i++) {
+      if (await el.isChecked().catch(() => false)) return true;
+      await sleep(300);
     }
+    return false;
+  };
+  if (await el.isChecked().catch(() => false)) return;
+  try { await el.check({ timeout: 3000 }); } catch { /* judged below */ }
+  if (await settled()) return;
+  try { await el.check({ force: true, timeout: 3000 }); } catch { /* judged below */ }
+  if (await settled()) return;
+  // Infor's styled checkboxes may render the visible control on the <label>: click the label for this input,
+  // else any visible label with the same text, and judge by the input it points to.
+  const esc = labelText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const labels = id
+    ? dlg.locator(`label[for="${id}"]`)
+    : dlg.locator('label').filter({ hasText: new RegExp(`^\\s*${esc}\\s*$`) });
+  const n = Math.min(await labels.count().catch(() => 0), 10);
+  for (let i = 0; i < n; i++) {
+    const lb = labels.nth(i);
+    if (!(await lb.isVisible().catch(() => false))) continue;
+    await lb.click({ timeout: 5000 });
+    if (await settled()) return;
+    const forId = await lb.getAttribute('for', { timeout: 2000 }).catch(() => null);
+    if (forId && (await dlg.locator(`[id="${forId}"]`).isChecked().catch(() => false))) return;
   }
   if (!(await el.isChecked().catch(() => false))) throw new Error(`Could not select "${labelText}"`);
 }

@@ -11,9 +11,9 @@
     "userDataDir": "%LOCALAPPDATA%\\InforAutofill\\browser-profile-xm",
     "viewport": { "width": 1600, "height": 1000 }
   },
-  "dateFormat": "DD/MM/YY",
-  "dayColumnFormat": "ddd DD/MM",
-  "periodFormat": "DD-Mon-YYYY",
+  "dateFormat": "MM/DD/YY",
+  "dayColumnFormat": "ddd M/D",
+  "periodFormat": "Mon D, YYYY",
   "weekStartDay": 0,
   "weekendDays": [0, 6],
   "hours": {

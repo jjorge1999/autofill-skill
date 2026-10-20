@@ -12,6 +12,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'xm-test-'));
 const portal = pathToFileURL(path.join(__dirname, 'mock-portal.html')).href;
 
 const cfg = JSON.parse(fs.readFileSync(path.join(XM, 'xm.config.json'), 'utf8'));
+// the mock renders XM's older day-first layout; the live config uses the newer US layout
+Object.assign(cfg, { dateFormat: 'DD/MM/YY', dayColumnFormat: 'ddd DD/MM', periodFormat: 'DD-Mon-YYYY' });
 cfg.browser.channel = null;
 cfg.urls.appUrlPatterns = ['^file:'];
 cfg.paths.logDir = path.join(tmp, 'logs');
@@ -70,6 +72,13 @@ const tests = [
     const w = weekOf('2026-09-24', cfg);
     assert.strictEqual(formatDate(w.start, 'DD/MM/YY'), '20/09/26');
     assert.strictEqual(formatDate(w.dates[1], 'ddd DD/MM'), 'Mon 21/09');
+    // newer US layout
+    const q = parsePeriod('Nov 8, 2026 - Nov 14, 2026');
+    assert.ok(q && q.start.getMonth() === 10 && q.start.getDate() === 8 && q.end.getDate() === 14, 'US-style period parsed');
+    const o = weekOf('2026-10-12', cfg);
+    assert.strictEqual(formatDate(o.start, 'MM/DD/YY'), '10/11/26');
+    assert.strictEqual(formatDate(o.dates[1], 'ddd M/D'), 'Mon 10/12');
+    assert.strictEqual(`${formatDate(o.start, 'Mon D, YYYY')} - ${formatDate(o.end, 'Mon D, YYYY')}`, 'Oct 11, 2026 - Oct 17, 2026');
   }],
   ['unknown day blocks the run before opening a browser', async () => {
     const r = await run(['--week', '2026-09-22', '--summary', summary, '--overrides', noOverrides, '--holidays', holidays, '--config', cfgFile, '--headless']);
