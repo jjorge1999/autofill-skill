@@ -1,0 +1,18 @@
+{
+  "apiBaseUrl": "https://api.tempo.io/4",
+  "jiraBaseUrl": "https://infor.atlassian.net",
+  "authorAccountId": "6320f3114395a525a710ecb6",
+  "dailyHours": 8,
+  "startTime": "09:00",
+  "defaultDescription": "",
+  "worklogs": [
+    { "issueKey": "", "issueId": null, "hours": 2, "description": "" },
+    { "issueKey": "", "issueId": null, "hours": 6, "description": "" }
+  ],
+  "weekendDays": [0, 6],
+  "paths": {
+    "overrides": "../hcm/overrides.json",
+    "holidays": "../xm/holidays.json",
+    "logDir": "logs"
+  }
+}

@@ -116,6 +116,17 @@ Same draft-first safety as HCM. It reaches the new-timesheet screen via the **Cr
 
 If any weekday is still `unknown`, it files nothing and exits with code `2`, listing the dates to add to `overrides.json`. See `xm\README.md` for details and exit codes.
 
+## 7b. Tempo (Jira) daily worklogs
+
+Tempo gets at least 8 h per worked weekday through the Tempo REST API (no browser); missing hours go to the issues in `tempo\tempo.config.json`, and a day already at 8 h or more is left alone. Leave and holiday days get nothing. Set it up once (API token via `tempo\Save-TempoToken.ps1`, issue keys/ids and the split) as described in `tempo\README.md`, then try:
+
+```powershell
+cd C:\InforAutofill\tempo
+.\run-tempo.ps1 -From 2026-10-19 -To 2026-10-23 --dry-run
+```
+
+The daily scheduled run then logs Tempo after HCM. Until it is set up, each run reports "Tempo not set up".
+
 ## 8. Typical weekly routine
 
 1. Detection and filing run themselves via the scheduled tasks (presence checks all day, filing at 16:30 and after logon).

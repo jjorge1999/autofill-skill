@@ -111,6 +111,32 @@ Assert-Equal '2026-10-08' ((Get-WeekBlockers -Week (D '2026-10-04') -Dates @('20
 Assert-Equal '' ((Get-WeekBlockers -Week (D '2026-10-04') -Dates @('2026-10-08') -Overrides @{ '2026-10-08' = 'wfh' }) -join ',') 'override explains an unrecognised date'
 Assert-Equal '' ((Get-WeekBlockers -Week (D '2026-10-04') -Dates @('2026-10-03', '2026-10-11') -Overrides @{}) -join ',') 'dates outside the week do not block it'
 
+# Tempo: own coverage, older state files start where HCM is, -Force resets it too
+$st6 = Read-AutoFileState -Path (Join-Path $tmp 'none.json') -Today (D '2026-10-07')
+Assert-Equal '2026-10-06' $st6.tempoCoveredThrough 'new state: Tempo covered through yesterday'
+Set-Content -LiteralPath (Join-Path $tmp 'old.json') -Value '{"startedOn":"2026-09-01","hcmCoveredThrough":"2026-10-05","xmWeeksDone":[]}' -Encoding UTF8
+$st7 = Read-AutoFileState -Path (Join-Path $tmp 'old.json') -Today (D '2026-10-07')
+Assert-Equal '2026-10-05' $st7.tempoCoveredThrough 'old state without Tempo: starts at HCM coverage'
+$st7.tempoCoveredThrough = '2026-10-06'
+Save-AutoFileState -State $st7 -Path (Join-Path $tmp 'old.json')
+Assert-Equal '2026-10-06' (Read-AutoFileState -Path (Join-Path $tmp 'old.json') -Today (D '2026-10-07')).tempoCoveredThrough 'tempoCoveredThrough round trip'
+$tr = Get-TempoRange -State $st7 -Today (D '2026-10-09')
+Assert-Equal '2026-10-07..2026-10-09' ("{0}..{1}" -f (ConvertTo-IsoDate $tr.From), (ConvertTo-IsoDate $tr.To)) 'Tempo range after its own coverage'
+$sf2 = S '2026-09-01' '2026-10-06' @()
+Reset-AutoFileStateForForce -State $sf2 -Today (D '2026-10-07')
+Assert-Equal '2026-09-22' $sf2.tempoCoveredThrough '-Force: Tempo coverage goes back 15 days'
+$sk2 = Get-SkippedTempoDays -State ([pscustomobject]@{ tempoCoveredThrough = '2026-09-10' }) -Today (D '2026-10-07')
+Assert-Equal '2026-09-11..2026-09-22' ("{0}..{1}" -f (ConvertTo-IsoDate $sk2.From), (ConvertTo-IsoDate $sk2.To)) 'Tempo days past the 14-day cap are listed'
+$tempoOut = @(
+    '[tempo] 2026-10-19..2026-10-23: Mon 2026-10-19=work',
+    '[tempo] 2026-10-19 Mon: filed 8.00h (EXP-1 2.00h, MNT-2 6.00h), day total 8.00h',
+    '[tempo]   2026-10-20 Tue: already 9.00h, left alone',
+    '[tempo] 2026-10-21 Wed: filed 7.00h (EXP-1 2.00h, MNT-2 5.00h), day total 8.00h')
+$tf = Get-TempoFilerFindings -Output $tempoOut
+Assert-Equal '2026-10-19,2026-10-21' ($tf.Filed -join ',') 'Tempo filed days found'
+$rb = Get-RangeBlockers -Range @{ From = (D '2026-10-01'); To = (D '2026-10-15') } -Dates @('2026-09-30', '2026-10-08', '2026-10-14') -Overrides @{ '2026-10-14' = 'wfh' }
+Assert-Equal '2026-10-08' ($rb -join ',') 'range blockers: inside the range and unexplained only'
+
 Remove-Item -Recurse -Force $tmp
 if ($script:failures) { Write-Host "$script:failures failure(s)" -ForegroundColor Red; exit 1 }
 Write-Host 'All auto-file logic tests passed' -ForegroundColor Green

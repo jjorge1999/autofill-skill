@@ -33,24 +33,31 @@ function Read-AutoFileState {
         $skipped = @()
         if ($s.PSObject.Properties.Name -contains 'xmWeeksSkipped') { $skipped = @($s.xmWeeksSkipped | Where-Object { $_ }) }
         $s | Add-Member -NotePropertyName xmWeeksSkipped -NotePropertyValue $skipped -Force
+        # Tempo was added later: an older state file starts Tempo where HCM is, so no old days are backfilled
+        # Tempo was added later: an older state file starts Tempo where HCM is, so no old days are backfilled
+        $tempo = $s.hcmCoveredThrough
+        if ($s.PSObject.Properties.Name -contains 'tempoCoveredThrough' -and $s.tempoCoveredThrough) { $tempo = $s.tempoCoveredThrough }
+        $s | Add-Member -NotePropertyName tempoCoveredThrough -NotePropertyValue $tempo -Force
         return $s
     }
     return [pscustomobject]@{
-        startedOn         = ConvertTo-IsoDate $Today.Date
-        hcmCoveredThrough = ConvertTo-IsoDate $Today.Date.AddDays(-1)
-        xmWeeksDone       = @()
-        xmWeeksSkipped    = @()
+        startedOn           = ConvertTo-IsoDate $Today.Date
+        hcmCoveredThrough   = ConvertTo-IsoDate $Today.Date.AddDays(-1)
+        tempoCoveredThrough = ConvertTo-IsoDate $Today.Date.AddDays(-1)
+        xmWeeksDone         = @()
+        xmWeeksSkipped      = @()
     }
 }
 
 function Save-AutoFileState {
     param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)][string]$Path)
     $out = [ordered]@{
-        startedOn         = $State.startedOn
-        hcmCoveredThrough = $State.hcmCoveredThrough
-        xmWeeksDone       = @(@($State.xmWeeksDone) | Where-Object { $_ } | Sort-Object -Unique)
+        startedOn           = $State.startedOn
+        hcmCoveredThrough   = $State.hcmCoveredThrough
+        tempoCoveredThrough = $State.tempoCoveredThrough
+        xmWeeksDone         = @(@($State.xmWeeksDone) | Where-Object { $_ } | Sort-Object -Unique)
         # weeks past the XM cap that were reported once (never filed automatically)
-        xmWeeksSkipped    = @(@($State.xmWeeksSkipped) | Where-Object { $_ } | Sort-Object -Unique)
+        xmWeeksSkipped      = @(@($State.xmWeeksSkipped) | Where-Object { $_ } | Sort-Object -Unique)
     }
     Write-JsonFile $out $Path
 }
@@ -58,7 +65,18 @@ function Save-AutoFileState {
 function Get-HcmRange {
     # Days still to consider for HCM: after hcmCoveredThrough, at most MaxDaysBack days before today, up to today.
     param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)][datetime]$Today, [int]$MaxDaysBack = 14)
-    $from = (ConvertFrom-IsoDate $State.hcmCoveredThrough).AddDays(1)
+    return Get-RangeAfter -CoveredThrough $State.hcmCoveredThrough -Today $Today -MaxDaysBack $MaxDaysBack
+}
+
+function Get-TempoRange {
+    # Days still to log in Tempo: after tempoCoveredThrough, at most MaxDaysBack days before today, up to today.
+    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)][datetime]$Today, [int]$MaxDaysBack = 14)
+    return Get-RangeAfter -CoveredThrough $State.tempoCoveredThrough -Today $Today -MaxDaysBack $MaxDaysBack
+}
+
+function Get-RangeAfter {
+    param([Parameter(Mandatory = $true)][string]$CoveredThrough, [Parameter(Mandatory = $true)][datetime]$Today, [int]$MaxDaysBack = 14)
+    $from = (ConvertFrom-IsoDate $CoveredThrough).AddDays(1)
     $floor = $Today.Date.AddDays(-$MaxDaysBack)
     if ($from -lt $floor) { $from = $floor }
     if ($from -gt $Today.Date) { return $null }
@@ -112,14 +130,27 @@ function Merge-OverrideAnswers {
 
 function Reset-AutoFileStateForForce {
     # -Force: reconsider the last 14 days for HCM. XM weeks already done stay done (the filer's exists-check is not a substitute).
+    # The Tempo filer reads existing worklogs before logging, so reconsidering its days is safe too.
     param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)][datetime]$Today)
     $State.hcmCoveredThrough = ConvertTo-IsoDate $Today.Date.AddDays(-15)
+    $State | Add-Member -NotePropertyName tempoCoveredThrough -NotePropertyValue (ConvertTo-IsoDate $Today.Date.AddDays(-15)) -Force
 }
 
 function Get-SkippedHcmDays {
     # Days after hcmCoveredThrough that Get-HcmRange drops because they are more than MaxDaysBack days back: @{From; To} or $null.
     param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)][datetime]$Today, [int]$MaxDaysBack = 14)
-    $from = (ConvertFrom-IsoDate $State.hcmCoveredThrough).AddDays(1)
+    return Get-SkippedDaysAfter -CoveredThrough $State.hcmCoveredThrough -Today $Today -MaxDaysBack $MaxDaysBack
+}
+
+function Get-SkippedTempoDays {
+    # Days after tempoCoveredThrough that Get-TempoRange drops (more than MaxDaysBack days back): @{From; To} or $null.
+    param([Parameter(Mandatory = $true)]$State, [Parameter(Mandatory = $true)][datetime]$Today, [int]$MaxDaysBack = 14)
+    return Get-SkippedDaysAfter -CoveredThrough $State.tempoCoveredThrough -Today $Today -MaxDaysBack $MaxDaysBack
+}
+
+function Get-SkippedDaysAfter {
+    param([Parameter(Mandatory = $true)][string]$CoveredThrough, [Parameter(Mandatory = $true)][datetime]$Today, [int]$MaxDaysBack = 14)
+    $from = (ConvertFrom-IsoDate $CoveredThrough).AddDays(1)
     $floor = $Today.Date.AddDays(-$MaxDaysBack)
     if ($from -ge $floor) { return $null }
     return @{ From = $from; To = $floor.AddDays(-1) }
@@ -157,6 +188,16 @@ function Get-HcmFilerFindings {
     return $r
 }
 
+function Get-TempoFilerFindings {
+    # Scans file-tempo.js output: days that got hours added to reach 8h.
+    param([string[]]$Output = @())
+    $r = @{ Filed = @() }
+    foreach ($line in $Output) {
+        if ($line -match '^\[tempo\] (\d{4}-\d{2}-\d{2}) \S+: filed ') { $r.Filed += $Matches[1] }
+    }
+    return $r
+}
+
 function Test-XmSubmitUnconfirmed {
     # True when file-xm.js clicked Submit but saw no "Submitted" confirmation.
     param([string[]]$Output = @())
@@ -166,7 +207,13 @@ function Test-XmSubmitUnconfirmed {
 function Get-WeekBlockers {
     # Dates (yyyy-MM-dd) inside the Sun-Sat week starting at Week that overrides.json does not explain.
     param([Parameter(Mandatory = $true)][datetime]$Week, [string[]]$Dates = @(), [hashtable]$Overrides = @{})
-    $from = ConvertTo-IsoDate $Week
-    $to = ConvertTo-IsoDate $Week.AddDays(6)
+    return Get-RangeBlockers -Range @{ From = $Week; To = $Week.AddDays(6) } -Dates $Dates -Overrides $Overrides
+}
+
+function Get-RangeBlockers {
+    # Dates (yyyy-MM-dd) inside Range (@{From; To}) that overrides.json does not explain.
+    param([Parameter(Mandatory = $true)][hashtable]$Range, [string[]]$Dates = @(), [hashtable]$Overrides = @{})
+    $from = ConvertTo-IsoDate $Range.From
+    $to = ConvertTo-IsoDate $Range.To
     return @($Dates | Where-Object { $_ -and $_ -ge $from -and $_ -le $to -and -not $Overrides.ContainsKey($_) } | Sort-Object -Unique)
 }

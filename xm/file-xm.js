@@ -543,13 +543,28 @@ async function run(argv, hooks = {}) {
       step(`filled ${r}: ` + weekdays.map(d => fmt(exp[r][d.date])).join(' '));
     }
 
-    // 7. verify before Save
-    const problems = [];
-    const dayTotals = {};
+    // 7. verify before Save. XM recalculates the Week Total column a moment after the last cell is left,
+    // so a mismatch is re-read a few times before it counts (verifyRetries x verifyRetryMs).
     const weekendDays = days.filter(d => d.kind === 'weekend');
-    let grand = 0;
     const totalHeader = await frame.evaluate(re => Array.from(document.querySelectorAll('body *'))
       .some(e => new RegExp(re, 'i').test((e.innerText || '').replace(/\s+/g, ' ').trim())), S.weekTotalHeader);
+    let problems; let dayTotals; let grand; let footerChecked; let verifyWarnings;
+    for (let attempt = 0; ; attempt++) {
+      ({ problems, dayTotals, grand, footerChecked, verifyWarnings } = await verifyGrid());
+      if (!problems.length || attempt >= (T.verifyRetries ?? 5)) break;
+      await sleep(T.verifyRetryMs ?? 1000);
+    }
+    verifyWarnings.forEach(w => warn(w));
+    if (!totalHeader) warn("'Week Total' column not found; row totals not verified");
+    if (!footerChecked) warn('footer day totals not found; not verified');
+    log.expectedTotal = grand;
+    step(`expected total ${fmt(grand)}; ${problems.length ? problems.length + ' mismatch(es)' : 'grid verified'}`);
+
+    async function verifyGrid() {
+    const problems = [];
+    const dayTotals = {};
+    const verifyWarnings = [];
+    let grand = 0;
     for (const r of rows) {
       let rowTotal = 0;
       for (const d of weekdays) {
@@ -564,7 +579,7 @@ async function run(argv, hooks = {}) {
         const c = colOf(d);
         const cell = await locateCell(frame, cfg, r, rowRe(r), c.label, c.re, 'read');
         const v = cell.found ? num(cell.value) : 0;
-        if (v) warn(`${r} ${c.label} has ${fmt(v)} hours (weekend, left untouched)`);
+        if (v) verifyWarnings.push(`${r} ${c.label} has ${fmt(v)} hours (weekend, left untouched)`);
         rowTotal += v;
         dayTotals[d.date] = (dayTotals[d.date] || 0) + v;
       }
@@ -574,7 +589,6 @@ async function run(argv, hooks = {}) {
         if (!t.found || !same(num(t.value), rowTotal)) problems.push(`${r} Week Total: expected ${fmt(rowTotal)}, shows '${t.value}'`);
       }
     }
-    if (!totalHeader) warn("'Week Total' column not found; row totals not verified");
     let footerChecked = false;
     for (const d of weekdays) {
       const c = colOf(d);
@@ -583,9 +597,8 @@ async function run(argv, hooks = {}) {
       footerChecked = true;
       if (!same(num(t.value), dayTotals[d.date])) problems.push(`footer ${c.label}: expected ${fmt(dayTotals[d.date])}, shows '${t.value}' (extra rows in the grid?)`);
     }
-    if (!footerChecked) warn('footer day totals not found; not verified');
-    log.expectedTotal = grand;
-    step(`expected total ${fmt(grand)}; ${problems.length ? problems.length + ' mismatch(es)' : 'grid verified'}`);
+    return { problems, dayTotals, grand, footerChecked, verifyWarnings };
+    }
 
     if (opts.dryRun) {
       log.screenshot = await shot('dry-run');
@@ -659,7 +672,8 @@ async function openEmptyDraft(page, cfg, S, T, label, url, step) {
   const deadline = Date.now() + T.navStepMs;
   while (!row && Date.now() < deadline) {
     for (const f of page.frames()) {
-      const r = f.locator(S.documentRow).filter({ hasText: label });
+      // innermost rows only: My Documents sits in layout tables whose outer rows also contain the label
+      const r = f.locator(S.documentRow).filter({ hasText: label }).filter({ hasNot: f.locator('tr') });
       if (await r.count().catch(() => 0)) { row = r; break; }
     }
     if (!row) await sleep(T.pollMs);

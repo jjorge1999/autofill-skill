@@ -46,7 +46,7 @@ Logic tests: `powershell -File .\Tests\Test-Logic.ps1`, `.\Tests\Test-Summary.ps
 
 ## Unattended filing
 
-The `InforAutofill-File` scheduled task runs `Invoke-AutoFile.ps1` on workdays at `file_time` (default 16:30, set in `config.json`) and 2 minutes after you log on. It logs a fresh presence reading, files HCM "Telecommuting: Full Day" for work-from-home days, and fills and submits the XM weekly timesheet.
+The `InforAutofill-File` scheduled task runs `Invoke-AutoFile.ps1` on workdays at `file_time` (default 16:30, set in `config.json`) and 2 minutes after you log on. It logs a fresh presence reading, files HCM "Telecommuting: Full Day" for work-from-home days, tops every worked weekday up to at least 8 h in Tempo (see [tempo/README.md](tempo/README.md)), and fills and submits the XM weekly timesheet.
 
 A day is filed only once its readings are complete. Today counts only at or after `file_time`; a run before that (for example at logon) handles days up to yesterday. Friday's XM week also waits until Friday at `file_time`, and a Saturday or Monday logon catches it up.
 
@@ -59,6 +59,7 @@ A day is filed only once its readings are complete. Today counts only at or afte
 | HCM day has an entry that is neither Telecommuting nor leave (e.g. Official Business) | Notification; that day's XM week is not filed until the day is set in `hcm/overrides.json` | No |
 | HCM leave entry and a `wfh`/`office` override on the same day | XM: leave, 8 h (HCM leave wins; a leave-type override still wins over HCM) | No |
 | Unanswered `unknown` day at XM time | XM: counted as worked, 9 h | No |
+| Worked weekday (office, WFH or unanswered `unknown`) | Tempo: at least 8 h; missing hours go to the issues in `tempo/tempo.config.json`, a day already at 8 h+ is left alone; leave/holiday days get nothing | No |
 | XM week has every weekday worked or leave (Friday at `file_time`, or a later catch-up) | XM: fill and **submit** | No |
 | XM week already has a timesheet that is not an empty draft | Left alone; notification to check it in XM | No |
 | HCM request or XM submit not confirmed on screen | Notification to check it; not counted as filed, retried next run | No |

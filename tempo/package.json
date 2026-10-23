@@ -1,0 +1,15 @@
+{
+  "name": "infor-tempo-autofill",
+  "version": "1.0.0",
+  "description": "Logs 8h per worked day in Tempo (Jira Cloud) through the Tempo REST API",
+  "main": "file-tempo.js",
+  "private": true,
+  "scripts": {
+    "file": "node file-tempo.js",
+    "dry-run": "node file-tempo.js --dry-run",
+    "test": "node test/run-tests.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

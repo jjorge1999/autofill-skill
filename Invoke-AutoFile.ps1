@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-  Unattended filing: HCM Telecommuting for WFH days (daily) and the XM weekly timesheet (Fridays).
+  Unattended filing: HCM Telecommuting for WFH days (daily), 8h per worked day in Tempo (daily)
+  and the XM weekly timesheet (Fridays).
 .DESCRIPTION
   Run by the 'InforAutofill-File' scheduled task. Asks only about workdays with no network reading.
   Design: docs/superpowers/specs/2026-10-02-auto-file-design.md
@@ -40,6 +41,7 @@ $leavePath = Join-Path $dataDir 'hcm-leave.json'
 $overridesPath = Join-Path $here 'hcm\overrides.json'
 $hcmScript = Join-Path $here 'hcm\run-hcm.ps1'
 $xmScript = Join-Path $here 'xm\run-xm.ps1'
+$tempoScript = Join-Path $here 'tempo\run-tempo.ps1'
 
 function Write-RunLog([string]$Message) {
     $line = '{0}  {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
@@ -107,21 +109,28 @@ try {
         $attention += "XM weeks of $($labels -join ', ') not filed (over 2 weeks back) - file them in XM"
         $state.xmWeeksSkipped = @(@($state.xmWeeksSkipped) + $labels)   # reported once
     }
+    $skippedTempo = Get-SkippedTempoDays -State $state -Today $lastDay
+    if ($skippedTempo) {
+        $attention += "Tempo days $(ConvertTo-IsoDate $skippedTempo.From)..$(ConvertTo-IsoDate $skippedTempo.To) not logged (over 14 days back) - log them in Tempo"
+    }
     foreach ($a in $attention) { Write-RunLog "Attention: $a" }
     $range = Get-HcmRange -State $state -Today $lastDay
+    $tempoRange = Get-TempoRange -State $state -Today $lastDay
     $xmWeeks = Get-XmWeeksDue -State $state -Today $lastDay
     $xmWeeks = @($xmWeeks)
-    if (-not $range -and -not $xmWeeks.Count) {
+    if (-not $range -and -not $tempoRange -and -not $xmWeeks.Count) {
         Write-RunLog 'Nothing due.'
         if (-not $WhatIf -and $skippedWeeks.Count) { Save-AutoFileState -State $state -Path $statePath }
         return
     }
 
-    # one HCM pass covers the HCM range and every due XM week (Mon-Fri) so the leave export serves both
+    # one HCM pass covers the HCM range, the Tempo range and every due XM week (Mon-Fri) so the leave export serves all three
     $from = if ($range) { $range.From } else { $lastDay }
+    if ($tempoRange -and $tempoRange.From -lt $from) { $from = $tempoRange.From }
     foreach ($w in $xmWeeks) { if ($w.AddDays(1) -lt $from) { $from = $w.AddDays(1) } }
     $to = $lastDay
-    Write-RunLog ("HCM range {0}; XM weeks due: {1}" -f $(if ($range) { "$(ConvertTo-IsoDate $range.From)..$(ConvertTo-IsoDate $range.To)" } else { 'none' }),
+    Write-RunLog ("HCM range {0}; Tempo range {1}; XM weeks due: {2}" -f $(if ($range) { "$(ConvertTo-IsoDate $range.From)..$(ConvertTo-IsoDate $range.To)" } else { 'none' }),
+        $(if ($tempoRange) { "$(ConvertTo-IsoDate $tempoRange.From)..$(ConvertTo-IsoDate $tempoRange.To)" } else { 'none' }),
         $(if ($xmWeeks.Count) { ($xmWeeks | ForEach-Object { ConvertTo-IsoDate $_ }) -join ', ' } else { 'none' }))
 
     $summary = @(& (Join-Path $here 'Get-DailySummary.ps1') -From $from -To $to -ConfigPath $ConfigPath)
@@ -184,6 +193,29 @@ try {
     foreach ($u in $unverified) { $attention += "HCM $u filed but not seen on the calendar - check it in HCM" }
     if ($range -and $hcmCode -eq 0 -and $leaveKnown) {
         $state.hcmCoveredThrough = ConvertTo-IsoDate (Get-CoveredThrough -Range $range -Pending (@($pending) + $unverified))
+    }
+
+    # --- Tempo: 8h per worked weekday (leave/holiday days get nothing; unanswered unknown days count as worked, as for XM)
+    if ($tempoRange) {
+        if (-not $leaveKnown) { $failed += 'Tempo (HCM leave not read)' }
+        else {
+            # an HCM entry that is neither Telecommuting nor leave may be time off: not logged until explained
+            $tempoBlockers = @(Get-RangeBlockers -Range $tempoRange -Dates $unrecognisedDates -Overrides $overrides)
+            $tempoArgs = @('-From', (ConvertTo-IsoDate $tempoRange.From), '-To', (ConvertTo-IsoDate $tempoRange.To), '--leave', $leavePath)
+            if ($tempoBlockers.Count) {
+                $tempoArgs += @('--skip', ($tempoBlockers -join ','))
+                $attention += "Tempo $($tempoBlockers -join ', ') not logged: unrecognised HCM entry (set the day in hcm/overrides.json to go on)"
+            }
+            $code = Invoke-Filer -Name 'Tempo' -Script $tempoScript -Arguments $tempoArgs
+            $tf = Get-TempoFilerFindings -Output $script:FilerOutput
+            $filed += @($tf.Filed | ForEach-Object { "Tempo $_ to 8h" })
+            if ($code -eq 3) { $failed += 'Tempo not set up (token or tempo/tempo.config.json, see tempo/README.md)' }
+            elseif ($code -ne 0) { $failed += "Tempo (exit $code)" }
+            else {
+                # blocked days are retried until overrides.json explains them
+                $state | Add-Member -NotePropertyName tempoCoveredThrough -Force -NotePropertyValue (ConvertTo-IsoDate (Get-CoveredThrough -Range $tempoRange -Pending $tempoBlockers))
+            }
+        }
     }
 
     # --- XM: fill and submit due weeks (unanswered unknown days count as worked, per the user's rule)
